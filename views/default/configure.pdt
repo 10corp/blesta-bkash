@@ -1,0 +1,85 @@
+<?php
+$this->Form->create(null, ["url" => $this->base_uri . "settings/company/gateways/manage/" . $gateway_id]);
+?>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title"><?php $this->_("Bkash.configure.title"); ?></h3>
+    </div>
+    <div class="card-body">
+        <?php
+        // Display any form errors
+        if (!empty($vars->errors)) {
+            ?>
+            <div class="alert alert-danger">
+                <?php
+                foreach ($vars->errors as $error) {
+                    echo $this->Html->safe($error["error"]) . "<br>";
+                }
+                ?>
+            </div>
+            <?php
+        }
+        ?>
+
+        <div class="form-group">
+            <?php
+            $this->Form->label("meta[app_key]", $this->_("Bkash.setting_app_key"));
+            $this->Form->fieldText("meta[app_key]", $this->Html->ifSet($vars->meta["app_key"]), ["class" => "form-control", "required" => "required"]);
+            ?>
+        </div>
+
+        <div class="form-group">
+            <?php
+            $this->Form->label("meta[app_secret]", $this->_("Bkash.setting_app_secret"));
+            $this->Form->fieldText("meta[app_secret]", $this->Html->ifSet($vars->meta["app_secret"]), ["class" => "form-control", "required" => "required"]);
+            ?>
+        </div>
+
+        <div class="form-group">
+            <?php
+            $this->Form->label("meta[username]", $this->_("Bkash.setting_username"));
+            $this->Form->fieldText("meta[username]", $this->Html->ifSet($vars->meta["username"]), ["class" => "form-control", "required" => "required"]);
+            ?>
+        </div>
+
+        <div class="form-group">
+            <?php
+            $this->Form->label("meta[password]", $this->_("Bkash.setting_password"));
+            $this->Form->fieldPassword("meta[password]", $this->Html->ifSet($vars->meta["password"]), ["class" => "form-control", "required" => "required"]);
+            ?>
+        </div>
+
+        <div class="form-group">
+            <?php
+            $this->Form->label("meta[sandbox]", $this->_("Bkash.setting_environment"));
+            $this->Form->fieldSelect(
+                "meta[sandbox]",
+                [
+                    "1" => $this->_("Bkash.environment.sandbox"),
+                    "0" => $this->_("Bkash.environment.live")
+                ],
+                $this->Html->ifSet($vars->meta["sandbox"], "0"),
+                ["class" => "form-control", "id" => "environment", "required" => "required"]
+            );
+            ?>
+            <span class="fa fa-info-circle" data-toggle="tooltip" title="<?php $this->_("Bkash.tooltip_environment"); ?>"></span>
+        </div>
+    </div>
+    <div class="card-footer">
+        <?php
+        $this->Form->fieldSubmit($this->_("Bkash.configure.save"), ["class" => "btn btn-primary"]);
+        ?>
+    </div>
+</div>
+
+<?php
+$this->Form->end();
+?>
+
+<script type="text/javascript">
+    $(document).ready(function() {
+        // Initialize tooltips
+        $('[data-toggle="tooltip"]').tooltip();
+    });
+</script>
