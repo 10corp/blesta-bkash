@@ -1,15 +1,10 @@
-<div class="text-center mt-5">
-    <h3><?php $this->_("Bkash.process.submitting"); ?></h3>
-    <i class="fa fa-spinner fa-spin fa-3x"></i>
+<div class="container">
+        <h2>{lang key="Bkash.process.heading"}</h2>
+        {if isset($message)}
+            <div class="alert alert-{$message_type}">
+                {$message}
+            </div>
+        {/if}
+        <p>{lang key="Bkash.process.description"}</p>
+        {$form|raw}
 </div>
-
-<?php
-$this->Form->create($redirect_url, ['id' => 'payment_form']);
-$this->Form->end();
-?>
-
-<script type="text/javascript">
-    $(document).ready(function() {
-        $("#payment_form").submit();
-    });
-</script>

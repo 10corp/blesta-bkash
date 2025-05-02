@@ -5,7 +5,7 @@
   "class": "Bkash",
   "gateway_type": "nonmerchant",
   "version": "1.0.0",
-  "logo": "",
+  "logo": "views/default/images/logo.png",
   "authors": [
     {
       "name": "Mahmudul Hasan",
