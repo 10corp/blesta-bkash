@@ -1,21 +1,30 @@
 <?php
-declare(strict_types=1);
-
 /**
  * bKash Payment Operations
  *
  * Handles payment creation, execution, and recurring charges.
  * Depends on BkashAuth for token and HTTP transport.
  *
- * @version 1.2.0
+ * @version 1.0.7
  */
 class BkashPayment
 {
-	private readonly string $baseUrl;
+	/**
+	 * @var BkashAuth
+	 */
+	private $auth;
 
-	public function __construct(
-		private readonly BkashAuth $auth,
-	) {
+	/**
+	 * @var string Full versioned base URL from BkashAuth::getBaseUrl()
+	 */
+	private $baseUrl;
+
+	/**
+	 * @param BkashAuth $auth
+	 */
+	public function __construct(BkashAuth $auth)
+	{
+		$this->auth = $auth;
 		$this->baseUrl = $auth->getBaseUrl();
 	}
 
@@ -25,7 +34,7 @@ class BkashPayment
 	 * @param string $token id_token from BkashAuth
 	 * @return array
 	 */
-	private function buildHeaders(string $token): array
+	private function buildHeaders($token)
 	{
 		return [
 			'Content-Type: application/json',
@@ -48,18 +57,18 @@ class BkashPayment
 	 * @return array
 	 */
 	public function createPayment(
-		float $amount,
-		string $invoiceNumber,
-		string $callbackUrl,
-		?string $agreementId = null,
-		?string $payerReference = null,
-	): array {
+		$amount,
+		$invoiceNumber,
+		$callbackUrl,
+		$agreementId = null,
+		$payerReference = null
+	) {
 		$token = $this->auth->getToken();
 
 		if (empty($token)) {
 			error_log('[bKash] createPayment: token_missing');
 			return [
-				'statusCode' => 'TOKEN_ERROR',
+				'statusCode'    => 'TOKEN_ERROR',
 				'statusMessage' => 'Failed to obtain bKash authorization token',
 			];
 		}
@@ -100,14 +109,14 @@ class BkashPayment
 	 * @param string $paymentId
 	 * @return array
 	 */
-	public function executePayment(string $paymentId): array
+	public function executePayment($paymentId)
 	{
 		$token = $this->auth->getToken();
 
 		if (empty($token)) {
 			error_log('[bKash] executePayment: token_missing');
 			return [
-				'statusCode' => 'TOKEN_ERROR',
+				'statusCode'    => 'TOKEN_ERROR',
 				'statusMessage' => 'Failed to obtain bKash authorization token',
 			];
 		}
@@ -126,19 +135,21 @@ class BkashPayment
 	}
 
 	/**
-	 * Queries payment status from bKash for verification.
+	 * Queries the status of a payment by paymentID.
+	 *
+	 * Used as a fallback when execute fails, and in success() for verification.
 	 *
 	 * @param string $paymentId
 	 * @return array
 	 */
-	public function queryPayment(string $paymentId): array
+	public function queryPayment($paymentId)
 	{
 		$token = $this->auth->getToken();
 
 		if (empty($token)) {
 			error_log('[bKash] queryPayment: token_missing');
 			return [
-				'statusCode' => 'TOKEN_ERROR',
+				'statusCode'    => 'TOKEN_ERROR',
 				'statusMessage' => 'Failed to obtain bKash authorization token',
 			];
 		}
@@ -157,48 +168,6 @@ class BkashPayment
 	}
 
 	/**
-	 * Refunds a completed transaction.
-	 *
-	 * @param string $paymentId Original payment ID
-	 * @param string $trxId Original transaction ID
-	 * @param float $amount Amount to refund
-	 * @param string|null $reason Refund reason
-	 * @return array
-	 */
-	public function refundTransaction(string $paymentId, string $trxId, float $amount, ?string $reason = null): array
-	{
-		$token = $this->auth->getToken();
-
-		if (empty($token)) {
-			error_log('[bKash] refundTransaction: token_missing');
-			return [
-				'statusCode' => 'TOKEN_ERROR',
-				'statusMessage' => 'Failed to obtain bKash authorization token',
-			];
-		}
-
-		$body = [
-			'paymentID' => (string)$paymentId,
-			'trxID' => (string)$trxId,
-			'amount' => number_format((float)$amount, 2, '.', ''),
-			'sku' => 'refund',
-			'reason' => $reason ?? 'Customer requested refund'
-		];
-
-		$response = $this->auth->curlPostJson(
-			$this->baseUrl . '/tokenized/checkout/payment/refund',
-			$body,
-			$this->buildHeaders($token)
-		);
-
-		if (!empty($response['error'])) {
-			error_log('[bKash] refundTransaction API error: ' . json_encode($response));
-		}
-
-		return $response;
-	}
-
-	/**
 	 * Charges a client using an existing Standing Instruction agreement.
 	 *
 	 * @param string $agreementId
@@ -207,14 +176,14 @@ class BkashPayment
 	 * @param string|null $callbackUrl
 	 * @return array
 	 */
-	public function recurringCharge(string $agreementId, float $amount, string $invoiceNumber, ?string $callbackUrl = null): array
+	public function recurringCharge($agreementId, $amount, $invoiceNumber, $callbackUrl = null)
 	{
 		$token = $this->auth->getToken();
 
 		if (empty($token)) {
 			error_log('[bKash] recurringCharge: token_missing');
 			return [
-				'statusCode' => 'TOKEN_ERROR',
+				'statusCode'    => 'TOKEN_ERROR',
 				'statusMessage' => 'Failed to obtain bKash authorization token',
 			];
 		}

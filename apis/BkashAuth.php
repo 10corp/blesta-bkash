@@ -1,25 +1,52 @@
 <?php
-declare(strict_types=1);
-
 /**
  * bKash Authentication and HTTP Transport
  *
  * Manages token lifecycle with session-based caching.
  * Handles all HTTP communication with bKash API.
  *
- * @version 1.2.0
+ * @version 1.0.7
  */
 class BkashAuth
 {
-	private readonly string $baseUrl;
+	/**
+	 * @var string
+	 */
+	private $appKey;
 
-	public function __construct(
-		private readonly string $appKey,
-		private readonly string $appSecret,
-		private readonly string $username,
-		private readonly string $password,
-		bool $sandbox = true,
-	) {
+	/**
+	 * @var string
+	 */
+	private $appSecret;
+
+	/**
+	 * @var string
+	 */
+	private $username;
+
+	/**
+	 * @var string
+	 */
+	private $password;
+
+	/**
+	 * @var string Full versioned base URL
+	 */
+	private $baseUrl;
+
+	/**
+	 * @param string $appKey
+	 * @param string $appSecret
+	 * @param string $username
+	 * @param string $password
+	 * @param bool $sandbox
+	 */
+	public function __construct($appKey, $appSecret, $username, $password, $sandbox = true)
+	{
+		$this->appKey = (string)$appKey;
+		$this->appSecret = (string)$appSecret;
+		$this->username = (string)$username;
+		$this->password = (string)$password;
 		$this->baseUrl = $sandbox
 			? 'https://tokenized.sandbox.bka.sh/v1.2.0-beta'
 			: 'https://tokenized.pay.bka.sh/v1.2.0-beta';
@@ -30,7 +57,7 @@ class BkashAuth
 	 *
 	 * @return string
 	 */
-	public function getAppKey(): string
+	public function getAppKey()
 	{
 		return $this->appKey;
 	}
@@ -42,46 +69,39 @@ class BkashAuth
 	 *
 	 * @return string
 	 */
-	public function getBaseUrl(): string
+	public function getBaseUrl()
 	{
 		return $this->baseUrl;
 	}
 
 	/**
-	 * Returns the session cache key for this merchant's token.
+	 * Returns the session cache key for token storage.
 	 *
 	 * @return string
 	 */
-	private function sessionCacheKey(): string
+	private function sessionKey()
 	{
 		return 'bkash_token_' . md5($this->appKey . $this->username);
 	}
 
 	/**
-	 * Ensures PHP session is started for token caching.
-	 */
-	private function ensureSession(): void
-	{
-		if (session_status() === PHP_SESSION_NONE) {
-			@session_start();
-		}
-	}
-
-	/**
 	 * Returns cached token if valid, otherwise fetches new token.
+	 *
+	 * Fix 3: Token stored in $_SESSION instead of file cache.
 	 *
 	 * @return string|null
 	 */
-	public function getToken(): ?string
+	public function getToken()
 	{
-		$this->ensureSession();
-		$cacheKey = $this->sessionCacheKey();
+		if (session_status() === PHP_SESSION_NONE) {
+			session_start();
+		}
 
-		if (
-			!empty($_SESSION[$cacheKey]['id_token'])
-			&& time() < (int)($_SESSION[$cacheKey]['expires_at'] ?? 0)
-		) {
-			return $_SESSION[$cacheKey]['id_token'];
+		$cacheKey = $this->sessionKey();
+		$cached = $_SESSION[$cacheKey] ?? null;
+
+		if (!empty($cached['id_token']) && time() < (int)($cached['expires_at'] ?? 0)) {
+			return $cached['id_token'];
 		}
 
 		return $this->refreshToken();
@@ -90,9 +110,12 @@ class BkashAuth
 	/**
 	 * Fetches fresh token from bKash grant API.
 	 *
+	 * Fix 3: Token stored in $_SESSION.
+	 * Fix 4: Safe logging — no credentials in error_log.
+	 *
 	 * @return string|null
 	 */
-	private function refreshToken(): ?string
+	private function refreshToken()
 	{
 		$response = $this->curlPostJson(
 			$this->baseUrl . '/tokenized/checkout/token/grant',
@@ -109,21 +132,23 @@ class BkashAuth
 		);
 
 		if (!empty($response['id_token'])) {
-			$this->ensureSession();
-			$cacheKey = $this->sessionCacheKey();
+			if (session_status() === PHP_SESSION_NONE) {
+				session_start();
+			}
 
+			$cacheKey = $this->sessionKey();
 			$_SESSION[$cacheKey] = [
-				'id_token' => $response['id_token'],
+				'id_token'      => $response['id_token'],
 				'refresh_token' => $response['refresh_token'] ?? '',
-				'expires_at' => time() + (int)($response['expires_in'] ?? 3600) - 60,
+				'expires_at'    => time() + (int)($response['expires_in'] ?? 3600) - 60,
 			];
 
 			return $response['id_token'];
 		}
 
-		// Fix 4: Mask sensitive data in error logs
+		// Fix 4: Safe logging — no credentials exposed
 		$safeLog = [
-			'statusCode' => $response['statusCode'] ?? 'UNKNOWN',
+			'statusCode'    => $response['statusCode']    ?? 'UNKNOWN',
 			'statusMessage' => $response['statusMessage'] ?? 'No message',
 		];
 		error_log('[bKash] Token refresh failed: ' . json_encode($safeLog));
@@ -138,7 +163,7 @@ class BkashAuth
 	 * @param array $headers
 	 * @return array
 	 */
-	public function curlPostJson(string $url, array $body, array $headers = []): array
+	public function curlPostJson($url, array $body, array $headers = [])
 	{
 		$ch = curl_init($url);
 
@@ -147,6 +172,7 @@ class BkashAuth
 			CURLOPT_POST => true,
 			CURLOPT_POSTFIELDS => json_encode($body),
 			CURLOPT_HTTPHEADER => $headers,
+			CURLOPT_CONNECTTIMEOUT => 10,
 			CURLOPT_TIMEOUT => 30,
 			CURLOPT_SSL_VERIFYPEER => true
 		]);

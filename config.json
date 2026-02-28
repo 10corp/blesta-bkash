@@ -1,17 +1,13 @@
 {
-  "name": "bKash Payment Gateway",
-  "description": "Accept payments through bKash. Supports Sandbox and Live modes.",
-  "type": "nonmerchant",
-  "class": "Bkash",
-  "gateway_type": "nonmerchant",
-  "version": "1.0.0",
-  "logo": "views/default/images/logo.png",
-  "authors": [
-    {
-      "name": "Mahmudul Hasan",
-      "url": "https://www.10corp.com"
-    }
-  ],
-  "currencies": ["BDT"],
-  "signup_url": "https://www.bkash.com/business/online-business"
+	"name": "bKash Payment Gateway",
+	"description": "bKash Tokenized Checkout for Bangladesh - supports one-time and recurring payments",
+	"version": "1.0.7",
+	"authors": [
+		{
+			"name": "Mahmudul Hasan Tuhin",
+			"url": "https://github.com/dwindaadis/blesta"
+		}
+	],
+	"currencies": ["BDT"],
+	"logo": "logo.png"
 }

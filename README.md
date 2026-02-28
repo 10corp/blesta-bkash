@@ -1,54 +1,34 @@
-# bKash Payment Gateway for Blesta
+# bKash Payment Gateway for Blesta v1.0.7
 
-Accept payments through **bKash** using this official integration for [Blesta](https://blesta.com/).  
-Supports both **Sandbox** and **Live** environments.
-
-## Install the Gateway
-
-1. Upload the `bkash/` folder to your Blesta installation under:
-
-    ```
-    /components/gateways/nonmerchant/bkash/
-    ```
-
-2. In your Blesta admin area:
-
-    - Go to **[Settings] > [Company] > [Payment Gateways] > [Available]**.
-    - Find **bKash** in the list and click **Install**.
-
-3. Configure the gateway by entering your **API credentials** and selecting either **Sandbox** or **Live** mode.
+## Overview
+bKash Tokenized Checkout integration for Blesta billing system.
+Supports one-time payments and recurring via Standing Instructions.
 
 ## Requirements
+- Blesta 5.x+
+- PHP 7.4+
+- bKash merchant account with Tokenized Checkout API access
 
-- Blesta 5.0.0+  
-- PHP 7.2+  
-- A valid **bKash** Merchant Account
+## Installation
+1. Upload `bkash/` folder to `/components/gateways/nonmerchant/`
+2. Blesta Admin → Settings → Payment Gateways → Available → Install bKash
+3. Enter your bKash App Key, App Secret, Username, Password
+4. Enable Sandbox Mode for testing
 
-Don't have an account? [Sign up here](https://www.bkash.com/business/online-business).
+## Bug Fixes in v1.0.7
+- Bug 1: client_id from $contact_info (not $options)
+- Bug 2: Proper error messages shown to users
+- Bug 3: reference_id tracking for refunds
+- Bug 4: config.json uses actual strings
+- Bug 5: structure.pdt created (was missing)
+- Bug 6: URL architecture fixed in BkashAuth
+- Bug 7: payerReference passed for recurring
+- Bug 8: No nested forms in process.pdt
+- Bug 9: Tab indentation throughout
 
-## Gateway Features
+## API Reference
+- bKash Tokenized Checkout: https://developer.bka.sh
+- Blesta Non-Merchant Gateway: https://docs.blesta.com/developers/gateways/non-merchant-gateways
 
-- Accepts payments in **Bangladeshi Taka (BDT)**.
-- Supports **Sandbox** and **Live** modes for testing and production.
-- Seamless checkout flow for customers.
-- Transaction logging for easy debugging and reporting.
-
-## Configuration Options
-
-When setting up the gateway, you will be asked for:
-
-- **API Key**
-- **API Secret**
-- **App ID**
-- **App Secret**
-- **Environment** (Sandbox or Live)
-
-You can obtain these credentials from your bKash Merchant Dashboard after signing up.
-
-## About
-
-- **Author:** Mahmudul Hasan  
-- **Website:** [10corp.com](https://www.10corp.com)  
-- **Version:** 1.0.0
-
----
+## Author
+Mahmudul Hasan Tuhin

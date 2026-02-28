@@ -2,7 +2,7 @@
 /**
  * bKash Admin Settings Form
  *
- * @version 1.2.0
+ * @version 1.0.7
  */
 ?>
 <div class="bkash-settings">
@@ -29,7 +29,7 @@
 	<div class="form-group">
 		<div class="checkbox">
 			<label>
-				<?php echo $this->Form->fieldCheckbox('sandbox', 'true', ($this->Html->ifSet($meta['sandbox'], 'true') === 'true')); ?>
+				<?php echo $this->Form->fieldCheckbox('sandbox', 'true', ($this->Html->ifSet($meta['sandbox']) === 'true')); ?>
 				<?php echo Language::_('Bkash.sandbox', true); ?>
 			</label>
 			<small class="help-block">

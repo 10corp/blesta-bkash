@@ -1,10 +1,50 @@
-<div class="container">
-        <h2>{lang key="Bkash.process.heading"}</h2>
-        {if isset($message)}
-            <div class="alert alert-{$message_type}">
-                {$message}
-            </div>
-        {/if}
-        <p>{lang key="Bkash.process.description"}</p>
-        {$form|raw}
+<?php
+/**
+ * bKash Payment Redirect View
+ *
+ * Bug 8 fix: No Form->create() wrapper here.
+ * Blesta checkout already wraps page in <form>, nesting forms breaks HTML.
+ *
+ * @version 1.0.7
+ */
+?>
+<div class="bkash-payment-container" style="max-width:500px;margin:2rem auto;padding:2rem;background:#f8f9fa;border-radius:8px;text-align:center;">
+	<div style="margin-bottom:1.5rem;">
+		<svg width="80" height="80" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+			<rect width="100" height="100" rx="20" fill="#E2136E"/>
+			<path d="M30 35h15v30h-15zM55 35h15v30h-15z" fill="white"/>
+		</svg>
+	</div>
+
+	<h2 style="color:#333;margin-bottom:0.5rem;">
+		<?php echo Language::_('Bkash.process.title', true); ?>
+	</h2>
+
+	<p style="color:#666;margin-bottom:1.5rem;">
+		<?php echo Language::_('Bkash.process.redirect_message', true); ?>
+	</p>
+
+	<div style="background:white;padding:1rem;border-radius:4px;margin-bottom:1.5rem;">
+		<div style="color:#999;font-size:0.875rem;margin-bottom:0.25rem;">
+			<?php echo Language::_('Bkash.process.amount_label', true); ?>
+		</div>
+		<div style="color:#333;font-size:1.5rem;font-weight:600;">
+			<?php echo $this->Html->safe($currency); ?> <?php echo $this->Html->safe(number_format((float)$amount, 2)); ?>
+		</div>
+	</div>
+
+	<a href="<?php echo $this->Html->safe($bkash_url); ?>"
+	   style="display:inline-block;background:#E2136E;color:white;padding:1rem 2rem;border-radius:4px;text-decoration:none;font-weight:600;">
+		<?php echo Language::_('Bkash.process.redirect_button', true); ?> &rarr;
+	</a>
+
+	<p style="color:#999;font-size:0.75rem;margin-top:1.5rem;">
+		<?php echo Language::_('Bkash.process.footer_text', true); ?>
+	</p>
 </div>
+
+<script>
+setTimeout(function() {
+	window.location.href = '<?php echo $this->Html->safe($bkash_url); ?>';
+}, 2000);
+</script>

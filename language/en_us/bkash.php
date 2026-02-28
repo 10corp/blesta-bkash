@@ -1,25 +1,34 @@
 <?php
-// Error messages
-$lang['Bkash.!error.gateway_not_installed'] = 'The bKash gateway is not installed.';
-$lang['Bkash.!error.payment_failed'] = 'The payment could not be processed. Please try again.';
-$lang['Bkash.!error.username.valid'] = 'Please enter a valid Username.';
-$lang['Bkash.!error.password.valid'] = 'Please enter a valid Password.';
-$lang['Bkash.!error.app_key.valid'] = 'Please enter a valid App Key.';
-$lang['Bkash.!error.app_secret.valid'] = 'Please enter a valid App Secret.';
+/**
+ * bKash Language File (English)
+ *
+ * @version 1.0.7
+ */
 
-// Success messages
-$lang['Bkash.!success.payment_processed'] = 'Your payment was successfully processed.';
+$lang['Bkash.name'] = 'bKash Payment Gateway';
+$lang['Bkash.description'] = 'bKash Tokenized Checkout for Bangladesh';
 
-// Process page
-$lang['Bkash.process.title'] = 'Pay with bKash';
-$lang['Bkash.process.heading'] = 'Complete Your Payment';
-$lang['Bkash.process.description'] = 'You will be redirected to bKash to complete your payment. Please follow the instructions there to finalize the transaction.';
+$lang['Bkash.app_key'] = 'App Key';
+$lang['Bkash.app_secret'] = 'App Secret';
+$lang['Bkash.username'] = 'Username';
+$lang['Bkash.password'] = 'Password';
+$lang['Bkash.sandbox'] = 'Sandbox Mode';
+$lang['Bkash.sandbox_note'] = 'Enable sandbox mode for testing with bKash sandbox credentials';
 
-// Settings page
-$lang['Bkash.settings.heading'] = 'bKash Gateway Settings';
-$lang['Bkash.settings.username'] = 'Username';
-$lang['Bkash.settings.password'] = 'Password';
-$lang['Bkash.settings.app_key'] = 'App Key';
-$lang['Bkash.settings.app_secret'] = 'App Secret';
-$lang['Bkash.settings.submit'] = 'Save Settings';
-?>
+$lang['Bkash.!error.app_key.empty'] = 'Please enter your bKash App Key';
+$lang['Bkash.!error.app_secret.empty'] = 'Please enter your bKash App Secret';
+$lang['Bkash.!error.username.empty'] = 'Please enter your bKash Username';
+$lang['Bkash.!error.password.empty'] = 'Please enter your bKash Password';
+$lang['Bkash.!error.client_id.required'] = 'Client ID is required for bKash payment';
+$lang['Bkash.!error.payment_failed'] = 'Payment failed. Please try again or contact support.';
+$lang['Bkash.!error.payment_cancelled'] = 'Payment was cancelled. No charges were made.';
+$lang['Bkash.!error.transaction_not_found'] = 'Transaction not found. Payment may have expired.';
+$lang['Bkash.!error.invalid_response'] = 'Invalid response from bKash. Please contact support.';
+$lang['Bkash.!error.amount_mismatch'] = 'Payment amount mismatch. Transaction rejected for security.';
+$lang['Bkash.!error.currency_mismatch'] = 'Payment currency mismatch. Only BDT is supported.';
+
+$lang['Bkash.process.title'] = 'Complete Payment with bKash';
+$lang['Bkash.process.redirect_message'] = 'You will be redirected to bKash to complete your payment securely.';
+$lang['Bkash.process.amount_label'] = 'Amount';
+$lang['Bkash.process.redirect_button'] = 'Continue to bKash';
+$lang['Bkash.process.footer_text'] = 'Secured by bKash &bull; Powered by Blesta';
