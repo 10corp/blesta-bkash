@@ -1,0 +1,40 @@
+<?php
+/**
+ * bKash Admin Settings Form
+ *
+ * @version 1.2.0
+ */
+?>
+<div class="bkash-settings">
+	<div class="form-group">
+		<?php echo $this->Form->label(Language::_('Bkash.app_key', true), 'app_key'); ?>
+		<?php echo $this->Form->fieldText('app_key', $this->Html->ifSet($meta['app_key']), ['class' => 'form-control']); ?>
+	</div>
+
+	<div class="form-group">
+		<?php echo $this->Form->label(Language::_('Bkash.app_secret', true), 'app_secret'); ?>
+		<?php echo $this->Form->fieldPassword('app_secret', $this->Html->ifSet($meta['app_secret']), ['class' => 'form-control']); ?>
+	</div>
+
+	<div class="form-group">
+		<?php echo $this->Form->label(Language::_('Bkash.username', true), 'username'); ?>
+		<?php echo $this->Form->fieldText('username', $this->Html->ifSet($meta['username']), ['class' => 'form-control']); ?>
+	</div>
+
+	<div class="form-group">
+		<?php echo $this->Form->label(Language::_('Bkash.password', true), 'password'); ?>
+		<?php echo $this->Form->fieldPassword('password', $this->Html->ifSet($meta['password']), ['class' => 'form-control']); ?>
+	</div>
+
+	<div class="form-group">
+		<div class="checkbox">
+			<label>
+				<?php echo $this->Form->fieldCheckbox('sandbox', 'true', ($this->Html->ifSet($meta['sandbox'], 'true') === 'true')); ?>
+				<?php echo Language::_('Bkash.sandbox', true); ?>
+			</label>
+			<small class="help-block">
+				<?php echo Language::_('Bkash.sandbox_note', true); ?>
+			</small>
+		</div>
+	</div>
+</div>
