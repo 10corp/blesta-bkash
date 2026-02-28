@@ -32,3 +32,4 @@ Supports one-time payments and recurring via Standing Instructions.
 
 ## Author
 Mahmudul Hasan Tuhin
+- **Website:** [10corp.com](https://www.10corp.com)  
