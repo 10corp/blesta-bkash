@@ -1,0 +1,23 @@
+{
+    "version": "1.2.0",
+    "name": "Bkash.name",
+    "description": "Bkash.description",
+    "authors": [
+        {
+            "name": "Phillips Data, Inc.",
+            "url": "https://blesta.com/"
+        },
+        {
+            "name": "10Corp",
+            "url": "https://10corp.com/"
+        }
+    ],
+    "currencies": [
+        "BDT"
+    ],
+    "logo": {
+        "light": "views/default/images/logo.svg",
+        "dark": "views/default/images/logo-dark.svg"
+    },
+    "signup_url": "https://merchantportal.bkash.com/signup"
+}
