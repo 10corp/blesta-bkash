@@ -1,3 +1,23 @@
+<?php
+/**
+ * bKash Payment Process View (Client Invoice Checkout View).
+ *
+ * This template is loaded by Bkash::buildProcess() or Bkash::errorPage() when a client
+ * pays an invoice using the bKash payment method.
+ *
+ * VIEW STATES:
+ *  1. Error State ($error_message):
+ *     Renders a red alert banner displaying a localized error message if the invoice
+ *     amount is invalid, the currency is not BDT, or the gateway failed to initialize.
+ *  2. Checkout Redirect State ($checkout_url):
+ *     Renders the branded bKash pink payment button. Clicking this button redirects
+ *     the client's browser to the bKash hosted portal (bkashURL) to complete payment.
+ *
+ * @var View $this Blesta View instance
+ * @var string|null $error_message Localized error message to display
+ * @var string|null $checkout_url The bKash payment portal URL (from bKash /create API)
+ */
+?>
 <?php if (!empty($error_message)) { ?>
     <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3" role="alert">
         <i class="bi bi-exclamation-octagon-fill mt-1 flex-shrink-0"></i>

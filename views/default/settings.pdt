@@ -1,16 +1,24 @@
 <?php
-// ──────────────────────────────────────────────────────────────────────────────
-// settings.pdt — Admin settings form for the bKash gateway
-//
-// This template is rendered inside Blesta Admin → Settings → Payment Gateways → Manage.
-// Available variables:
-//   $meta (array) — Current saved settings:
-//     - app_key    (string) bKash App Key
-//     - app_secret (string) bKash App Secret (encrypted, always blank here)
-//     - username   (string) bKash API username
-//     - password   (string) bKash API password (encrypted, always blank here)
-//     - sandbox    (string) "true" or "false"
-// ──────────────────────────────────────────────────────────────────────────────
+/**
+ * bKash Gateway Settings Template (Admin View).
+ *
+ * This template is loaded by Bkash::getSettings() inside the Blesta Admin Portal
+ * (Settings > Company > Payment Gateways > Installed > bKash > Manage).
+ *
+ * TEMPLATE ARCHITECTURE & BEST PRACTICES:
+ *  - Loaded via Blesta's View engine with Form and Html helpers loaded.
+ *  - $this->Html->safe() is used to HTML-escape output and prevent Cross-Site Scripting (XSS).
+ *  - $this->_('Language.key') outputs translated localized strings.
+ *  - Input fields use Blesta Form helper ($this->Form->fieldText, fieldPassword, fieldCheckbox).
+ *  - The App Secret and Password inputs are password-type fields without values pre-filled,
+ *    adhering to security best practices for encrypted credentials.
+ *
+ * @var View $this Blesta View instance
+ * @var array $meta Array of current gateway settings from database
+ */
+
+// Base path for gateway web assets (images, SVGs, etc.)
+$image_base = $this->view_dir;
 ?>
 <div class="bkash-settings-wrapper">
     <!-- bKash branding header -->
@@ -90,13 +98,7 @@
         </div>
     </div>
 
-    <!-- Gateway Mode section -->
-    <!--
-        Uses a SINGLE checkbox, matching the Paysera/SSLCommerz pattern:
-        - Checked   → sandbox = "true"  (test mode)
-        - Unchecked → sandbox is NOT submitted, editSettings() defaults to "false" (live mode)
-        This is how HTML checkboxes work — unchecked checkboxes are not included in form data.
-    -->
+    <!-- Mode section -->
     <div class="card" style="border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
         <div class="card-header py-2 px-3" style="background: #f8f9fa; border-bottom: 1px solid #dee2e6;">
             <span class="fw-semibold" style="font-size: 0.88rem; color: #495057;">
@@ -105,16 +107,34 @@
             </span>
         </div>
         <div class="card-body p-3">
-            <div class="form-check form-switch">
+            <div class="form-check form-switch mb-2">
                 <?php
-                // Single checkbox: checked = sandbox enabled, unchecked = live mode
                 $this->Form->fieldCheckbox(
                     'sandbox',
                     'true',
                     (($meta['sandbox'] ?? 'true') === 'true'),
-                    ['id' => 'sandbox', 'class' => 'form-check-input']
+                    [
+                        'id' => 'sandbox',
+                        'class' => 'form-check-input',
+                        'onchange' => "if (this.checked) { document.getElementById('live').checked = false; }"
+                    ]
                 );
                 $this->Form->label($this->_('Bkash.sandbox', true), 'sandbox', ['class' => 'form-check-label']);
+                ?>
+            </div>
+            <div class="form-check form-switch">
+                <?php
+                $this->Form->fieldCheckbox(
+                    'sandbox',
+                    'false',
+                    (($meta['sandbox'] ?? 'true') === 'false'),
+                    [
+                        'id' => 'live',
+                        'class' => 'form-check-input',
+                        'onchange' => "if (this.checked) { document.getElementById('sandbox').checked = false; }"
+                    ]
+                );
+                $this->Form->label($this->_('Bkash.live', true), 'live', ['class' => 'form-check-label']);
                 ?>
             </div>
             <p class="text-muted mt-2 mb-0" style="font-size: 0.8rem;">
