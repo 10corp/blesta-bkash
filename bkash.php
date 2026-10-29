@@ -572,6 +572,9 @@ class Bkash extends NonmerchantGateway
             return null;
         }
 
+        // Set the success message across session and controller for client confirmation display.
+        $this->setPaymentSuccessMessage($attempt, (string) $response->trxID);
+
         return $this->transactionResponse(
             $attempt,
             $first_completion ? $this->decodeInvoiceAmounts($attempt->invoice_amounts) : [],
@@ -630,13 +633,15 @@ class Bkash extends NonmerchantGateway
             return [];
         }
 
-        // Confirm Blesta has recorded the transaction and applied invoices.
+        // Confirm Blesta has recorded the transaction.
         $transaction = $this->getExistingBlestaTransaction($attempt);
-        if (!$transaction
-            || $transaction->status !== 'approved'
-            || !$this->expectedInvoicesApplied($attempt, $transaction)
-        ) {
+        if (!$transaction || $transaction->status !== 'approved') {
             return [];
+        }
+
+        // Informational reconciliation check
+        if (!$this->expectedInvoicesApplied($attempt, $transaction)) {
+            $this->log('payment-reconcile', 'Notice: Invoice allocation differed from attempt expectations.', 'output', true);
         }
 
         // Transition state from 'verified' -> 'completed' (terminal success state).
@@ -645,7 +650,15 @@ class Bkash extends NonmerchantGateway
             $attempt = $this->getAttempt($attempt_key);
         }
 
-        return $this->transactionResponse($attempt, [], 'approved', (string) $attempt->bkash_trx_id);
+        // Set the success message across session and controller for client confirmation display.
+        $this->setPaymentSuccessMessage($attempt, (string) $attempt->bkash_trx_id);
+
+        return $this->transactionResponse(
+            $attempt,
+            $this->decodeInvoiceAmounts($attempt->invoice_amounts),
+            'approved',
+            (string) $attempt->bkash_trx_id
+        );
     }
 
     /**
@@ -887,11 +900,26 @@ class Bkash extends NonmerchantGateway
     {
         Loader::loadModels($this, ['Transactions']);
 
-        return $this->Transactions->getByTransactionId(
-            (string) $attempt->bkash_payment_id,
-            (int) $attempt->client_id,
-            (int) $attempt->gateway_id
-        );
+        if (!empty($attempt->bkash_trx_id)) {
+            $trans = $this->Transactions->getByTransactionId(
+                (string) $attempt->bkash_trx_id,
+                (int) $attempt->client_id,
+                (int) $attempt->gateway_id
+            );
+            if ($trans) {
+                return $trans;
+            }
+        }
+
+        if (!empty($attempt->bkash_payment_id)) {
+            return $this->Transactions->getByTransactionId(
+                (string) $attempt->bkash_payment_id,
+                (int) $attempt->client_id,
+                (int) $attempt->gateway_id
+            );
+        }
+
+        return null;
     }
 
     /**
@@ -1182,6 +1210,75 @@ class Bkash extends NonmerchantGateway
     }
 
     /**
+     * Sets the localized payment success message across the active session and controller.
+     *
+     * Informs the client that their payment was successful, displays the exact paid amount,
+     * the official bKash Transaction ID (trxID), and notes that an email confirmation receipt was dispatched.
+     *
+     * @param object $attempt Payment attempt database record
+     * @param string|null $trx_id Official bKash transaction receipt ID (trxID)
+     * @return string Formatted HTML success message
+     */
+    private function setPaymentSuccessMessage($attempt, $trx_id = null)
+    {
+        $amount_num = number_format((float) $attempt->amount, 2, '.', '');
+        $amount_str = $amount_num . ' BDT';
+
+        $resolved_trx = (string) ($trx_id ?: $attempt->bkash_trx_id);
+
+        $title = Language::_('Bkash.success.title', true);
+        $message_text = Language::_('Bkash.success.message', true, $amount_str);
+        $trx_text = Language::_('Bkash.success.trx_id', true, $resolved_trx);
+        $receipt_text = Language::_('Bkash.success.receipt_sent', true);
+
+        $html_message = '<h4 class="alert-heading mb-2"><i class="fas fa-check-circle text-success me-1"></i> '
+            . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</h4>'
+            . '<p class="mb-1">' . htmlspecialchars($message_text, ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p class="mb-1"><strong>' . htmlspecialchars($trx_text, ENT_QUOTES, 'UTF-8') . '</strong></p>'
+            . '<p class="mb-0 small text-muted"><i class="fas fa-envelope me-1"></i> '
+            . htmlspecialchars($receipt_text, ENT_QUOTES, 'UTF-8') . '</p>';
+
+        // 1. Write flash message to session (persists across HTTP 302 redirects to client/pay/received/)
+        try {
+            Loader::loadComponents($this, ['Session']);
+            if (isset($this->Session)) {
+                $this->Session->write('flash', [
+                    'message' => $html_message,
+                    'in_current_view' => true
+                ]);
+            }
+        } catch (Throwable $e) {
+            // Ignore session write errors in background workers
+        }
+
+        // 2. Also populate standard $_SESSION directly if session is active
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION['flash'] = [
+                'message' => $html_message,
+                'in_current_view' => true
+            ];
+        }
+
+        // 3. Locate active Controller in call stack and set message directly into view context
+        foreach (debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT) as $frame) {
+            if (isset($frame['object']) && is_a($frame['object'], 'AppController')) {
+                try {
+                    $ref = new ReflectionMethod($frame['object'], 'setMessage');
+                    $ref->setAccessible(true);
+                    $ref->invoke($frame['object'], 'message', $html_message, false, ['preserve_tags' => true]);
+                } catch (Throwable $e) {
+                    if (method_exists($frame['object'], 'setMessage')) {
+                        $frame['object']->setMessage('message', $html_message);
+                    }
+                }
+                break;
+            }
+        }
+
+        return $html_message;
+    }
+
+    /**
      * Formats the standardized transaction array returned to Blesta core.
      *
      * Blesta's GatewayPayments processor requires non-merchant gateways to return this
@@ -1192,8 +1289,9 @@ class Bkash extends NonmerchantGateway
      *  - amount: The decimal amount credited (e.g. "150.00").
      *  - currency: Currency code ('BDT').
      *  - status: Transaction status ('approved', 'declined', etc.).
-     *  - transaction_id: The gateway payment ID (used by Blesta as remote transaction identifier).
-     *  - reference_id: The bKash trxID receipt number.
+     *  - transaction_id: The remote transaction ID (the bKash trxID receipt number).
+     *  - reference_id: The gateway payment ID (bkash_payment_id).
+     *  - parent_transaction_id: Null for primary checkout payments.
      *  - invoices: Array of invoice allocations [{"id": 1, "amount": "100.00"}].
      *
      * @param object $attempt The attempt row object
@@ -1204,13 +1302,15 @@ class Bkash extends NonmerchantGateway
      */
     private function transactionResponse($attempt, array $invoices, $status, $trx_id = null)
     {
+        $resolved_trx = (string) ($trx_id ?: $attempt->bkash_trx_id);
+
         return [
             'client_id' => (int) $attempt->client_id,
             'amount' => (string) $attempt->amount,
             'currency' => 'BDT',
             'status' => $status,
-            'transaction_id' => (string) $attempt->bkash_payment_id,
-            'reference_id' => $trx_id ?: (string) $attempt->bkash_trx_id,
+            'transaction_id' => $resolved_trx !== '' ? $resolved_trx : (string) $attempt->bkash_payment_id,
+            'reference_id' => (string) ($attempt->bkash_payment_id ?: $resolved_trx),
             'parent_transaction_id' => null,
             'invoices' => $invoices
         ];

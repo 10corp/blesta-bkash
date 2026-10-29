@@ -331,13 +331,20 @@ When bKash redirects the user or sends a callback to Blesta, `validate()` execut
 9. **Step 9 — Anti-Replay Defense**: Calls `providerTransactionExists()` and relies on the unique `uq_bkash_trx_id` index to verify that the returned `trxID` has never been used on any other payment attempt.
 10. **Step 10 — Finalization**: Marks the attempt `verified`, records `bkash_trx_id` and `verified_at`, and returns the structured `approved` transaction array to credit Blesta invoices.
 
-### 3. Client Return Security (`success()`)
+### 3. Client Return Security (`success()`) & Success Confirmation Display
 
 `success()` is designed as a **read-only defense-in-depth handler**:
 - It **never** independently calls `/execute` or captures funds, protecting the system against client-side browser redirect manipulation.
 - It inspects the local attempt row to verify that server-side `validate()` has already transitioned the payment to `verified`.
 - Once confirmed, it transitions the attempt state from $\text{verified} \to \text{completed}$ and renders the final invoice confirmation screen.
-- Passes empty invoices (`'invoices' => []`) on return to prevent Blesta core from double-applying payments.
+- **Client Confirmation Banner**: Automatically injects a prominent, localized success notification:
+  ```text
+  Payment Successful!
+  Thank you for your payment of [Amount]. Your invoice has been marked as paid.
+  Transaction ID: [TRX ID]
+  A confirmation receipt has been sent to your email.
+  ```
+- Returns the validated bKash transaction receipt ID (`trxID`) and invoice allocations so the client confirmation panel accurately displays their receipt number, payment amount, and invoice ID.
 
 ### Cancellation Flow Comparison (Paysera Pattern)
 

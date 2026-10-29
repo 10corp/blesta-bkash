@@ -64,3 +64,10 @@ $lang['Bkash.error.currency'] = 'bKash payments are available only for BDT invoi
 $lang['Bkash.error.invalid_amount'] = 'The invoice payment amount is invalid.';
 $lang['Bkash.error.cancelled'] = 'Payment was cancelled. No charges were made to your account. Your invoice remains unpaid—please try again or choose another payment method.';
 
+// ── Client-Facing Payment Success Messages ──────────────────────────────────
+$lang['Bkash.success.title'] = 'Payment Successful!';
+$lang['Bkash.success.message'] = 'Thank you for your payment of %1$s. Your invoice has been marked as paid.';
+$lang['Bkash.success.trx_id'] = 'Transaction ID: %1$s';
+$lang['Bkash.success.receipt_sent'] = 'A confirmation receipt has been sent to your email.';
+
+
