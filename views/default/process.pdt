@@ -5,6 +5,11 @@
  * This template is loaded by Bkash::buildProcess() or Bkash::errorPage() when a client
  * pays an invoice using the bKash payment method.
  *
+ * CLIENT PORTAL CONVENTION (Blesta 6.0 Bootstrap 4 + FontAwesome):
+ *  - Per Blesta 6.0 extension guidelines, client-facing views render within the client
+ *    portal theme (Bootstrap 4 + jQuery + FontAwesome).
+ *  - Icons use FontAwesome 5 ('fas fa-*') for guaranteed rendering in all client themes.
+ *
  * VIEW STATES:
  *  1. Error State ($error_message):
  *     Renders a red alert banner displaying a localized error message if the invoice
@@ -20,7 +25,7 @@
 ?>
 <?php if (!empty($error_message)) { ?>
     <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3" role="alert">
-        <i class="bi bi-exclamation-octagon-fill mt-1 flex-shrink-0"></i>
+        <i class="fas fa-exclamation-circle mt-1 flex-shrink-0"></i>
         <div><?php echo $this->Html->safe($error_message); ?></div>
     </div>
 <?php } elseif (!empty($checkout_url)) { ?>
@@ -59,10 +64,10 @@
                 </g>
             </svg>
             <?php $this->_('Bkash.buildprocess.submit'); ?>
-            <i class="bi bi-arrow-right-circle ms-1"></i>
+            <i class="fas fa-arrow-circle-right ms-1"></i>
         </a>
         <div class="mt-3 d-flex align-items-center justify-content-center gap-1 text-muted" style="font-size: 0.78rem;">
-            <i class="bi bi-shield-lock-fill" style="color: #198754;"></i>
+            <i class="fas fa-shield-alt text-success"></i>
             Secured by bKash &middot; Powered by bKash Tokenized Checkout
         </div>
     </div>

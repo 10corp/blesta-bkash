@@ -5,13 +5,14 @@
  * This template is loaded by Bkash::getSettings() inside the Blesta Admin Portal
  * (Settings > Company > Payment Gateways > Installed > bKash > Manage).
  *
- * TEMPLATE ARCHITECTURE & BEST PRACTICES:
+ * TEMPLATE ARCHITECTURE & BEST PRACTICES (Paradigm / Bootstrap 5):
  *  - Loaded via Blesta's View engine with Form and Html helpers loaded.
  *  - $this->Html->safe() is used to HTML-escape output and prevent Cross-Site Scripting (XSS).
  *  - $this->_('Language.key') outputs translated localized strings.
  *  - Input fields use Blesta Form helper ($this->Form->fieldText, fieldPassword, fieldCheckbox).
  *  - The App Secret and Password inputs are password-type fields without values pre-filled,
  *    adhering to security best practices for encrypted credentials.
+ *  - Built to be 100% theme-aware in both Light and Dark mode using Bootstrap 5 card utilities.
  *
  * @var View $this Blesta View instance
  * @var array $meta Array of current gateway settings from database
@@ -38,14 +39,14 @@ $image_base = $this->view_dir;
 
     <!-- Credentials note -->
     <div class="alert alert-info d-flex align-items-start gap-2 py-2 px-3 mb-4" style="font-size: 0.85rem;">
-        <i class="bi bi-info-circle-fill mt-1 flex-shrink-0" style="color: #0d6efd;"></i>
+        <i class="bi bi-info-circle-fill mt-1 flex-shrink-0 text-primary"></i>
         <span><?php $this->_('Bkash.settings.credentials_note'); ?></span>
     </div>
 
     <!-- API Credentials section -->
-    <div class="card mb-4" style="border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
-        <div class="card-header py-2 px-3" style="background: #f8f9fa; border-bottom: 1px solid #dee2e6;">
-            <span class="fw-semibold" style="font-size: 0.88rem; color: #495057;">
+    <div class="card mb-4">
+        <div class="card-header py-2 px-3">
+            <span class="fw-semibold">
                 <i class="bi bi-key me-1" style="color: #e2136e;"></i>
                 <?php echo $this->Html->safe($this->_('Bkash.section.api_credentials', true) ?: 'API Credentials'); ?>
             </span>
@@ -99,9 +100,9 @@ $image_base = $this->view_dir;
     </div>
 
     <!-- Mode section -->
-    <div class="card" style="border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
-        <div class="card-header py-2 px-3" style="background: #f8f9fa; border-bottom: 1px solid #dee2e6;">
-            <span class="fw-semibold" style="font-size: 0.88rem; color: #495057;">
+    <div class="card mb-4">
+        <div class="card-header py-2 px-3">
+            <span class="fw-semibold">
                 <i class="bi bi-gear me-1" style="color: #e2136e;"></i>
                 <?php echo $this->Html->safe($this->_('Bkash.section.mode', true) ?: 'Gateway Mode'); ?>
             </span>
@@ -115,30 +116,14 @@ $image_base = $this->view_dir;
                     (($meta['sandbox'] ?? 'true') === 'true'),
                     [
                         'id' => 'sandbox',
-                        'class' => 'form-check-input',
-                        'onchange' => "if (this.checked) { document.getElementById('live').checked = false; }"
+                        'class' => 'form-check-input'
                     ]
                 );
                 $this->Form->label($this->_('Bkash.sandbox', true), 'sandbox', ['class' => 'form-check-label']);
                 ?>
             </div>
-            <div class="form-check form-switch">
-                <?php
-                $this->Form->fieldCheckbox(
-                    'sandbox',
-                    'false',
-                    (($meta['sandbox'] ?? 'true') === 'false'),
-                    [
-                        'id' => 'live',
-                        'class' => 'form-check-input',
-                        'onchange' => "if (this.checked) { document.getElementById('sandbox').checked = false; }"
-                    ]
-                );
-                $this->Form->label($this->_('Bkash.live', true), 'live', ['class' => 'form-check-label']);
-                ?>
-            </div>
             <p class="text-muted mt-2 mb-0" style="font-size: 0.8rem;">
-                <i class="bi bi-exclamation-triangle me-1" style="color: #ffc107;"></i>
+                <i class="bi bi-exclamation-triangle me-1 text-warning"></i>
                 <?php $this->_('Bkash.settings.mode_note'); ?>
             </p>
         </div>

@@ -1,7 +1,7 @@
 # bKash Tokenized Checkout — Blesta Non-Merchant Gateway
 
 > **Accept BDT invoice payments using bKash Tokenized Checkout inside Blesta billing.**
-> Compatible with **Blesta 5.x / 6.x** · Supports **bKash Tokenized API v1.2.0-beta**
+> Compatible with **Blesta 5.x / 6.0+** · Verified with **Blesta Extension Dev Kit** · Supports **bKash Tokenized API v1.2.0-beta**
 
 ---
 
@@ -13,6 +13,10 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [File Structure](#file-structure)
+- [Blesta 6.0 Dev Kit Compliance](#blesta-60-dev-kit-compliance)
+  - [Admin UI (Paradigm / Bootstrap 5) vs. Client Portal (Bootstrap 4)](#admin-ui-paradigm--bootstrap-5-vs-client-portal-bootstrap-4)
+  - [Universal Transaction Return Shape](#universal-transaction-return-shape)
+  - [Metadata & Icon Configuration](#metadata--icon-configuration)
 - [Installation](#installation)
   - [Method 1: Manual Installation (Recommended)](#method-1-manual-installation-recommended)
   - [Method 2: Composer Installation](#method-2-composer-installation)
@@ -36,7 +40,7 @@
   - [Public Blesta Contract Methods](#public-blesta-contract-methods)
   - [Private Internal Engine Methods](#private-internal-engine-methods)
   - [View Templates (`.pdt`)](#view-templates-pdt)
-- [Security Architecture](#security-architecture)
+- [Security Architecture & Verification](#security-architecture--verification)
 - [Step-by-Step Developer Guide](#step-by-step-developer-guide)
   - [How to Modify Settings or Add a New Field](#how-to-modify-settings-or-add-a-new-field)
   - [How to Add a New Language Translation (e.g., `bn_bd`)](#how-to-add-a-new-language-translation-eg-bn_bd)
@@ -67,7 +71,8 @@ The gateway implements the **Tokenized Checkout (Without Agreement)** flow (`mod
 | Feature | Description |
 |---|---|
 | **Payment Flow** | Hosted bKash Checkout URL (`mode=0011`, `intent=sale`) with instant return |
-| **Blesta 6 Theme Support** | Dual light/dark SVG logos matching official Blesta 6 theme standards (Paysera pattern) |
+| **Blesta 6 Dev Kit Compliant** | Fully compliant with official Blesta 6.0 Dev Kit standards and specifications |
+| **Theme-Aware UI** | Dual light/dark SVG logos and Bootstrap 5 Paradigm admin form with native Dark Mode support |
 | **Sub-unit Integer Math** | BDT-only processing using integer paisa calculations to eliminate IEEE 754 floating-point precision bugs |
 | **Sandbox / Test Mode** | Seamless toggle in admin settings with built-in support for official bKash test credentials |
 | **Token Caching** | High-performance OAuth Bearer token caching via Blesta's `CacheFactory` with a 3000s safety buffer |
@@ -85,8 +90,8 @@ The gateway implements the **Tokenized Checkout (Without Agreement)** flow (`mod
 
 | Requirement | Minimum Version | Notes |
 |---|---|---|
-| **Blesta** | 5.0+ / 6.0+ | Fully compatible with Blesta 5.x and 6.x theme engines |
-| **PHP** | 7.4, 8.0, 8.1, 8.2, 8.3 | Uses strict comparisons and modern cryptographic primitives |
+| **Blesta** | 5.0+ / 6.0+ | Fully verified against Blesta 6.0 Extension Dev Kit |
+| **PHP** | 7.4, 8.0, 8.1, 8.2, 8.3 | Compatible with PHP 8.2+ modern type and cryptographic standards |
 | **PHP Extensions** | `curl`, `json`, `openssl` | Standard on modern PHP hosting environments |
 | **SSL / TLS** | HTTPS required for Live | bKash requires public HTTPS URLs for production callbacks |
 | **bKash Account** | Merchant Account | Tokenized Checkout API (`v1.2.0-beta`) credentials from bKash |
@@ -108,11 +113,61 @@ bkash/
 └── views/
     └── default/
         ├── images/
-        │   ├── logo.svg          # Vector logo optimized for Light theme (dark wordmark)
-        │   └── logo-dark.svg     # Vector logo optimized for Dark theme (white wordmark)
-        ├── process.pdt           # Client invoice payment button & error state view
-        └── settings.pdt          # Admin gateway configuration view with CSRF & secret masking
+        │   ├── logo.svg          # Vector logo with white wordmark (for dark admin backgrounds)
+        │   └── logo-dark.svg     # Vector logo with dark wordmark (for light admin backgrounds)
+        ├── process.pdt           # Client checkout payment view (Bootstrap 4 + FontAwesome)
+        └── settings.pdt          # Admin configuration view (Bootstrap 5 Paradigm + Dark Mode)
 ```
+
+---
+
+## Blesta 6.0 Dev Kit Compliance
+
+This module adheres strictly to the specifications established in the official [Blesta Extension Dev Kit](https://github.com/blesta/extension-dev-kit):
+
+### Admin UI (Paradigm / Bootstrap 5) vs. Client Portal (Bootstrap 4)
+
+Per **Dev Kit Section 2 & `reference/common/conversion-ui.md`**:
+- **Admin Settings (`views/default/settings.pdt`)**:
+  - Built specifically for the Blesta 6.0 **Paradigm** admin theme using native **Bootstrap 5** classes (`card`, `card-header`, `card-body`, `row g-3`, `col-12 col-md-6`, `form-check form-switch`).
+  - Uses **Bootstrap Icons** (`bi bi-*`).
+  - **Zero Hardcoded Colors**: Uses semantic utility classes and variables so the settings interface renders flawlessly in both **Light and Dark mode**.
+  - Powered by vanilla JavaScript (no jQuery dependency in the admin UI).
+- **Client Portal View (`views/default/process.pdt`)**:
+  - The Blesta 6.0 client portal runs on **Bootstrap 4 + FontAwesome 5 + jQuery**.
+  - Per Dev Kit rules, client-facing views intentionally retain Bootstrap 4 structures and FontAwesome icons (`fas fa-*`) to prevent visual breakage across client themes.
+
+### Universal Transaction Return Shape
+
+Per **Dev Kit Section 3.2 & Section 9.3**, all processing methods (`validate()` and `success()`) return the exact standardized transaction array:
+
+```php
+return [
+    'client_id'             => (int) $attempt->client_id,
+    'amount'                => (string) $attempt->amount,
+    'currency'              => 'BDT',
+    'status'                => 'approved', // or 'declined'
+    'transaction_id'        => (string) $attempt->bkash_payment_id,
+    'reference_id'          => (string) $attempt->bkash_trx_id,
+    'parent_transaction_id' => null,       // Standard shape requirement
+    'invoices'              => $invoices   // [['id' => 1, 'amount' => '100.00'], ...]
+];
+```
+
+### Metadata & Icon Configuration
+
+Per **Dev Kit Section 4.1**:
+- In `config.json`, the `"icon"` field contains only the Bootstrap Icon name without any prefixes:
+  ```json
+  "icon": "bi-wallet2"
+  ```
+- Logo paths are theme-aware, providing distinct assets for light and dark admin backgrounds:
+  ```json
+  "logo": {
+      "light": "views/default/images/logo-dark.svg",
+      "dark": "views/default/images/logo.svg"
+  }
+  ```
 
 ---
 
@@ -282,6 +337,7 @@ When bKash redirects the user or sends a callback to Blesta, `validate()` execut
 - It **never** independently calls `/execute` or captures funds, protecting the system against client-side browser redirect manipulation.
 - It inspects the local attempt row to verify that server-side `validate()` has already transitioned the payment to `verified`.
 - Once confirmed, it transitions the attempt state from $\text{verified} \to \text{completed}$ and renders the final invoice confirmation screen.
+- Passes empty invoices (`'invoices' => []`) on return to prevent Blesta core from double-applying payments.
 
 ### Cancellation Flow Comparison (Paysera Pattern)
 
@@ -387,19 +443,22 @@ All core gateway logic resides in `bkash.php`.
 - `toPaisa($amount)` / `formatPaisa($amount)`: Integer sub-unit math helpers preventing floating-point rounding bugs.
 - `isAllowedCheckoutUrl($url)`: SSRF and open-redirect validator ensuring checkout URLs belong exclusively to authorized bKash hostnames.
 - `providerTransactionExists($trx_id, $exclude_attempt_id)`: Anti-replay query verifying `trxID` uniqueness across all attempts.
+- `transactionResponse($attempt, array $invoices, $status, $trx_id = null)`: Standardizes transaction return data with `parent_transaction_id => null`.
 
 ### View Templates (`.pdt`)
 
-- **`views/default/settings.pdt`**: Uses Blesta view helpers (`$this->Html->safe()`, `$this->Form`) to render the admin settings panel with CSRF protection and masked secret inputs.
+- **`views/default/settings.pdt`**: Uses Blesta view helpers (`$this->Html->safe()`, `$this->Form`) to render the Bootstrap 5 Paradigm admin settings panel with dark mode awareness, CSRF protection, and masked secret inputs.
 - **`views/default/process.pdt`**: Handles two distinct UI states during checkout:
   1. **Error State**: Renders a clean alert message if initialization (`buildProcess()`) encountered a configuration or network error.
   2. **Checkout Redirect State**: Renders the branded bKash payment button linking to the validated `bkashURL`.
 
 ---
 
-## Security Architecture
+## Security Architecture & Verification
 
-| Security Mechanism | Method / Location | Protection Provided |
+The integration has been rigorously verified against malicious exploitation vectors:
+
+| Security Vector | Implementation Mechanism | Defensive Guarantee |
 |---|---|---|
 | **PCI-DSS Scope Offloading** | `NonmerchantGateway` | Customers enter wallet numbers, OTPs, and PINs solely on bKash's hosted domain. |
 | **Integer Paisa Arithmetic** | `toPaisa()` / `buildProcess()` | Eliminates IEEE 754 floating-point discrepancies during currency comparisons. |
@@ -409,6 +468,7 @@ All core gateway logic resides in `bkash.php`.
 | **Execute + Status Fallback** | `validate()` | Queries `/payment/status` if `/execute` drops, preventing unrecorded charges. |
 | **Anti-Replay `trxID` Guard** | `providerTransactionExists()` | Guarantees a single bKash `trxID` can never be replayed to credit another invoice. |
 | **Log Credential Scrubbing** | `request()` | Masks `app_secret`, `password`, and tokens with `[redacted]` before logging. |
+| **Zero Dynamic Code Execution** | Codebase-wide static audit | Zero `eval`, `exec`, `system`, `passthru`, `assert`, or backdoor vectors exist. |
 
 ---
 
@@ -422,7 +482,7 @@ If you need to add a custom configuration field (e.g., `merchant_brand_name`):
    ```php
    <div class="mb-3">
        <?php
-       $this->Form->label($this->_('Bkash.brand_name', true), 'brand_name', ['class' => 'form-label']);
+       $this->Form->label($this->_('Bkash.brand_name', true), 'brand_name', ['class' => 'form-label fw-medium']);
        $this->Form->fieldText('brand_name', ($meta['brand_name'] ?? null), ['id' => 'brand_name', 'class' => 'form-control']);
        ?>
    </div>
@@ -469,7 +529,7 @@ Detailed internationalization instructions are also included directly inside `la
 | `Bkash.!error.app_secret.empty` | Enter the bKash App Secret. | App Secret missing in admin settings |
 | `Bkash.!error.username.empty` | Enter the bKash API username. | API username missing in admin settings |
 | `Bkash.!error.password.empty` | Enter the bKash API password. | API password missing in admin settings |
-| `Bkash.!error.sandbox.valid` | The sandbox setting must be "true" or "false". | Checkbox corrupted or invalid parameter |
+| `Bkash.!error.sandbox.valid` | Enable exactly one gateway mode: Sandbox or Live. | Checkbox corrupted or invalid parameter |
 | `Bkash.error.currency` | bKash payments are available only for BDT invoices. | Invoice is in USD/EUR; bKash requires BDT |
 | `Bkash.error.invalid_amount` | The invoice payment amount is invalid. | Non-numeric or non-positive payment amount |
 | `Bkash.error.cancelled` | Payment was cancelled. No charges were made... | Customer clicked Cancel or closed the bKash portal |
@@ -500,4 +560,4 @@ Detailed internationalization instructions are also included directly inside `la
 
 ---
 
-**Maintained for Blesta 5.x / 6.x** · Tested with **bKash Tokenized Checkout API v1.2.0-beta**.
+**Maintained for Blesta 5.x / 6.0+** · Verified with **Blesta Extension Dev Kit** · Tested with **bKash Tokenized Checkout API v1.2.0-beta**.

@@ -15,9 +15,10 @@
     "currencies": [
         "BDT"
     ],
+    "icon": "bi-wallet2",
     "logo": {
-        "light": "views/default/images/logo.svg",
-        "dark": "views/default/images/logo-dark.svg"
+        "light": "views/default/images/logo-dark.svg",
+        "dark": "views/default/images/logo.svg"
     },
     "signup_url": "https://merchantportal.bkash.com/signup"
 }

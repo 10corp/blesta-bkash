@@ -239,6 +239,11 @@ class Bkash extends NonmerchantGateway
                 ]
             ];
         }
+        // Default sandbox to 'false' if checkbox is unchecked (HTML forms omit unchecked checkboxes from POST data).
+        if (!isset($meta['sandbox'])) {
+            $meta['sandbox'] = 'false';
+        }
+
         // Enforce strict boolean string for the sandbox flag.
         $rules['sandbox'] = [
             'valid' => [
@@ -1206,6 +1211,7 @@ class Bkash extends NonmerchantGateway
             'status' => $status,
             'transaction_id' => (string) $attempt->bkash_payment_id,
             'reference_id' => $trx_id ?: (string) $attempt->bkash_trx_id,
+            'parent_transaction_id' => null,
             'invoices' => $invoices
         ];
     }
