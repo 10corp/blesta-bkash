@@ -1,9 +1,20 @@
 {
-    "name": "custom/blesta-bkash",
-    "description": "bKash non-merchant gateway scaffold for Blesta",
-    "license": "proprietary",
+    "name": "10corp/blesta-bkash",
+    "description": "bKash Non-Merchant Gateway for Blesta",
     "type": "blesta-gateway-nonmerchant",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Phillips Data, Inc.",
+            "homepage": "https://blesta.com"
+        },
+        {
+            "name": "10Corp",
+            "homepage": "https://10corp.com"
+        }
+    ],
     "require": {
+        "php": ">=8.4",
         "blesta/composer-installer": "~1.0"
     }
 }

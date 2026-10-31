@@ -34,6 +34,8 @@
  *     (with `/payment/status` fallback), checks for duplicate trxIDs, and credits the invoice.
  *  5. Client Return (`success()`):
  *     Blesta renders payment receipt or error message to the customer.
+ *  6. Refund Processing (`refund()`):
+ *     Admin can trigger direct API refunds from Blesta via `/payment/refund`.
  *
  * @package blesta
  * @subpackage blesta.components.gateways.nonmerchant.bkash
@@ -79,18 +81,43 @@ class Bkash extends NonmerchantGateway
     /**
      * @var array Gateway configuration metadata (API credentials, sandbox toggle, etc.) loaded from Blesta.
      */
-    private $meta = [];
+    private array $meta = [];
+
+    /**
+     * @var string Active currency code (strictly BDT).
+     */
+    protected string $currency = 'BDT';
 
     /**
      * Gateway constructor.
      *
      * Initializes the gateway by:
-     *  1. Loading metadata configuration from config.json (logos, supported currencies, etc.).
-     *  2. Loading Blesta's Input component for form validation and error handling.
-     *  3. Loading localized text strings from language/en_us/bkash.php based on user locale.
+     *  1. Enforcing strict runtime platform requirements: PHP >= 8.4 and Blesta >= 6.0.
+     *  2. Loading metadata configuration from config.json (logos, supported currencies, etc.).
+     *  3. Loading Blesta's Input component for form validation and error handling.
+     *  4. Loading localized text strings from language/en_us/bkash.php based on user locale.
+     *
+     * @throws RuntimeException If running on PHP < 8.4 or Blesta < 6.0
      */
     public function __construct()
     {
+        // ── Step 1: Enforce PHP 8.4+ Runtime Requirement ───────────────────────
+        if (PHP_VERSION_ID < 80400) {
+            throw new RuntimeException('The bKash gateway strictly requires PHP 8.4 or newer.');
+        }
+
+        // ── Step 2: Enforce Blesta 6.0+ Host Application Requirement ───────────
+        $blesta_version = defined('BLESTA_VERSION') ? BLESTA_VERSION : null;
+        if ($blesta_version === null) {
+            Loader::loadModels($this, ['Settings']);
+            if (isset($this->Settings)) {
+                $blesta_version = $this->Settings->getDbVersion();
+            }
+        }
+        if ($blesta_version && version_compare($blesta_version, '6.0.0', '<')) {
+            throw new RuntimeException('The bKash gateway strictly requires Blesta 6.0 or newer.');
+        }
+
         $this->loadConfig(dirname(__FILE__) . DS . 'config.json');
         Loader::loadComponents($this, ['Input']);
         Language::loadLang('bkash', null, dirname(__FILE__) . DS . 'language' . DS);
@@ -222,23 +249,26 @@ class Bkash extends NonmerchantGateway
      *  - All 4 API credentials ('app_key', 'app_secret', 'username', 'password') must be non-empty strings.
      *  - 'sandbox' must strictly be either the string 'true' or 'false'.
      *
-     * @param array $meta Submitted settings from the HTTP POST form
+     * @param array|null $meta Submitted settings from the HTTP POST form
      * @return array The validated settings array to be saved in Blesta
      */
-    public function editSettings(array $meta)
+    public function editSettings(array $meta = null)
     {
+        $meta = $meta ?? [];
         $rules = [];
+
         // Enforce that all API credential fields are present, trimmed, and non-empty.
         foreach (['app_key', 'app_secret', 'username', 'password'] as $field) {
             $rules[$field] = [
                 'valid' => [
-                    'rule' => function ($value) use ($field) {
+                    'rule' => function ($value) {
                         return is_string($value) && trim($value) !== '';
                     },
                     'message' => Language::_('Bkash.!error.' . $field . '.empty', true)
                 ]
             ];
         }
+
         // Default sandbox to 'false' if checkbox is unchecked (HTML forms omit unchecked checkboxes from POST data).
         if (!isset($meta['sandbox'])) {
             $meta['sandbox'] = 'false';
@@ -421,9 +451,11 @@ class Bkash extends NonmerchantGateway
      * BUSINESS LOGIC & EXECUTION LIFECYCLE:
      *  Step 1: HMAC Signature Verification — verifies the URL parameters have not been tampered with.
      *  Step 2: Attempt Retrieval & Ownership Check — loads attempt from DB and validates company/gateway scope.
-     *  Step 3: Idempotency & Re-delivery Guards — handles retries without double-executing.
-     *  Step 4: Cancellation Detection — detects if customer cancelled or PIN failed, marking attempt failed.
-     *  Step 5: Atomic Claim Lock — transitions state from 'redirected'/'verified' to 'executing' atomically.
+     *  Step 3: Idempotency & State Machine Guards — prevents overwriting 'verified' or 'completed' attempts
+     *          even if the unsigned `status` query parameter is manipulated in the URL.
+     *  Step 4: Cancellation Detection — detects if customer cancelled or PIN failed, marking attempt failed
+     *          ONLY if the attempt has not yet been verified/completed.
+     *  Step 5: Atomic Claim Lock — transitions state from 'redirected' to 'executing' atomically.
      *  Step 6: Token Acquisition — retrieves bKash API bearer token.
      *  Step 7: Payment Execution — calls bKash `/execute` API (with fallback to `/payment/status`).
      *  Step 8: Payment Verification — ensures bKash status is 'Completed' and amount matches exactly.
@@ -449,12 +481,11 @@ class Bkash extends NonmerchantGateway
         }
 
         // ── Step 2: Retrieve Payment Attempt and Validate Context ─────────────
-        // Verify multi-tenant ownership (company_id, gateway_id), TTL expiration, and paymentID match.
+        // Verify multi-tenant ownership (company_id, gateway_id) and paymentID match.
         $attempt = $this->getAttempt($attempt_key);
         if (!$attempt
             || (int) $attempt->company_id !== (int) Configure::get('Blesta.company_id')
             || (int) $attempt->gateway_id !== (int) $this->gateway_id
-            || strtotime($attempt->expires_at . ' UTC') < time()
             || ($payment_id !== '' && !hash_equals((string) $attempt->bkash_payment_id, $payment_id))
         ) {
             $this->Input->setErrors($this->getCommonError('general'));
@@ -462,20 +493,34 @@ class Bkash extends NonmerchantGateway
         }
 
         // ── Step 3: Handle Idempotent Re-delivery & State Transitions ─────────
-        // If already 'completed', return success immediately (prevents duplicate invoice credits).
+        // SECURITY FIX (Bug #1): State guards execute BEFORE checking the unsigned `$get['status']` parameter
+        // and BEFORE TTL expiration checks on already-verified attempts.
+        // If already 'completed', return success immediately (prevents duplicate invoice credits or status tampering).
         if ($attempt->state === 'completed') {
             return $this->transactionResponse($attempt, [], 'approved');
         }
-        // If 'verified', check if Blesta's core has already created the transaction.
+
+        // If already 'verified', NEVER allow an unsigned `status=cancel` parameter to mark it 'failed'.
         if ($attempt->state === 'verified') {
             if ($this->getExistingBlestaTransaction($attempt)) {
                 return $this->transactionResponse($attempt, [], 'approved');
             }
-            if (strtotime($attempt->verified_at . ' UTC') > time() - self::CALLBACK_RETRY_DELAY_SECONDS) {
-                $this->Input->setErrors($this->getCommonError('general'));
-                return null;
-            }
+            // If Blesta hasn't recorded the transaction yet, re-return the approved response with invoice allocations
+            // so Blesta can finish recording it, without re-executing or failing the attempt.
+            return $this->transactionResponse(
+                $attempt,
+                $this->decodeInvoiceAmounts($attempt->invoice_amounts),
+                'approved',
+                (string) $attempt->bkash_trx_id
+            );
         }
+
+        // Enforce 30-minute TTL expiration strictly for unverified attempts.
+        if (strtotime($attempt->expires_at . ' UTC') < time()) {
+            $this->Input->setErrors($this->getCommonError('general'));
+            return null;
+        }
+
         // If stuck in 'executing' past the retry delay (e.g. server timeout), reset for retry.
         if ($attempt->state === 'executing') {
             if (strtotime($attempt->updated_at . ' UTC') > time() - self::CALLBACK_RETRY_DELAY_SECONDS) {
@@ -487,7 +532,7 @@ class Bkash extends NonmerchantGateway
 
         // ── Step 4: Detect Cancellation / Failure ─────────────────────────────
         // bKash sends ?status=cancel or ?status=failure if customer aborts or enters wrong PIN.
-        // Record failure reason, set user-facing error message, and return null.
+        // Since 'verified' and 'completed' states are already handled above, this only affects unverified attempts.
         if (strtolower((string) ($get['status'] ?? '')) !== 'success' || $payment_id === '') {
             $this->markAttemptFailed($attempt->id, 'customer_cancelled_or_failed');
             $this->Input->setErrors([
@@ -499,7 +544,7 @@ class Bkash extends NonmerchantGateway
         }
 
         // ── Step 5: Atomic State Claim (Race Condition Prevention) ────────────
-        // Uses an atomic SQL UPDATE with WHERE state IN ('redirected', 'verified') to ensure
+        // Uses an atomic SQL UPDATE with WHERE state = 'redirected' to ensure
         // that only one concurrent thread can transition this payment into 'executing'.
         if (!$this->claimAttempt($attempt->id)) {
             $attempt = $this->getAttempt($attempt_key);
@@ -592,7 +637,8 @@ class Bkash extends NonmerchantGateway
      * SECURITY ARCHITECTURE NOTE:
      * This method is strictly read-only regarding payment execution. It reads the server-side
      * attempt record verified by validate(); it NEVER executes or captures payments on its own.
-     * This defense-in-depth design ensures client-side browser manipulations cannot falsely trigger payments.
+     * Furthermore, if an attempt is already 'verified' or 'completed', it ignores tampered
+     * query parameters like `?status=cancel` so the audit trail cannot be corrupted.
      *
      * @param array $get GET query parameters from the return URL
      * @param array $post POST parameters (unused)
@@ -612,12 +658,43 @@ class Bkash extends NonmerchantGateway
         if (!$attempt
             || (int) $attempt->company_id !== (int) Configure::get('Blesta.company_id')
             || (int) $attempt->gateway_id !== (int) $this->gateway_id
-            || !hash_equals((string) $attempt->bkash_payment_id, (string) ($get['paymentID'] ?? ''))
+            || (!empty($get['paymentID']) && !hash_equals((string) $attempt->bkash_payment_id, (string) $get['paymentID']))
         ) {
             return [];
         }
 
-        // If the customer cancelled on bKash portal, show user-friendly cancellation notice on the invoice page.
+        // SECURITY FIX (Bug #1): Check if attempt is already 'verified' or 'completed' FIRST,
+        // before inspecting the unsigned `$get['status']` parameter.
+        if (in_array($attempt->state, ['verified', 'completed'], true)) {
+            // Confirm Blesta has recorded the transaction.
+            $transaction = $this->getExistingBlestaTransaction($attempt);
+            if (!$transaction || $transaction->status !== 'approved') {
+                return [];
+            }
+
+            // Informational reconciliation check
+            if (!$this->expectedInvoicesApplied($attempt, $transaction)) {
+                $this->log('payment-reconcile', 'Notice: Invoice allocation differed from attempt expectations.', 'output', true);
+            }
+
+            // Transition state from 'verified' -> 'completed' (terminal success state).
+            if ($attempt->state === 'verified') {
+                $this->markAttemptCompleted($attempt->id);
+                $attempt = $this->getAttempt($attempt_key);
+            }
+
+            // Set the success message across session and controller for client confirmation display.
+            $this->setPaymentSuccessMessage($attempt, (string) $attempt->bkash_trx_id);
+
+            return $this->transactionResponse(
+                $attempt,
+                $this->decodeInvoiceAmounts($attempt->invoice_amounts),
+                'approved',
+                (string) $attempt->bkash_trx_id
+            );
+        }
+
+        // Only if the attempt is NOT verified/completed, handle cancellation or failure from URL status.
         if (strtolower((string) ($get['status'] ?? '')) !== 'success') {
             $this->markAttemptFailed($attempt->id, 'customer_cancelled_or_failed');
             $this->Input->setErrors([
@@ -628,57 +705,81 @@ class Bkash extends NonmerchantGateway
             return null;
         }
 
-        // Ensure attempt has been verified or completed by server-side callback before proceeding.
-        if (!in_array($attempt->state, ['verified', 'completed'], true)) {
-            return [];
+        return [];
+    }
+
+    /**
+     * Refunds a previously completed bKash transaction via the bKash Tokenized Checkout Refund API.
+     *
+     * Maps Blesta's transaction records:
+     *  - $reference_id: The bKash `paymentID` (or fallback lookup from `bkash_payment_attempts`)
+     *  - $transaction_id: The bKash `trxID`
+     *
+     * @param string $reference_id The reference ID for the gateway transaction (bKash paymentID)
+     * @param string $transaction_id The transaction ID for the gateway transaction (bKash trxID)
+     * @param float $amount The amount to refund
+     * @param string|null $notes Notes about the refund (reason)
+     * @return array|null Formatted refund transaction array on success, or null on error
+     */
+    public function refund($reference_id, $transaction_id, $amount, $notes = null)
+    {
+        $amount_paisa = $this->toPaisa($amount);
+        if ($amount_paisa === null || $amount_paisa <= 0) {
+            $this->Input->setErrors($this->getCommonError('general'));
+            return null;
         }
 
-        // Confirm Blesta has recorded the transaction.
-        $transaction = $this->getExistingBlestaTransaction($attempt);
-        if (!$transaction || $transaction->status !== 'approved') {
-            return [];
+        $payment_id = trim((string) $reference_id);
+        $trx_id = trim((string) $transaction_id);
+
+        // If reference_id is missing or identical to trx_id, look up bkash_payment_id from the audit table.
+        if (($payment_id === '' || $payment_id === $trx_id) && $trx_id !== '') {
+            $record = new Record();
+            $attempt = $record->select(['bkash_payment_id'])->from(self::ATTEMPT_TABLE)
+                ->where('bkash_trx_id', '=', $trx_id)
+                ->fetch();
+            if ($attempt && !empty($attempt->bkash_payment_id)) {
+                $payment_id = (string) $attempt->bkash_payment_id;
+            }
         }
 
-        // Informational reconciliation check
-        if (!$this->expectedInvoicesApplied($attempt, $transaction)) {
-            $this->log('payment-reconcile', 'Notice: Invoice allocation differed from attempt expectations.', 'output', true);
+        if ($payment_id === '' || $trx_id === '') {
+            $this->Input->setErrors($this->getCommonError('unsupported'));
+            return null;
         }
 
-        // Transition state from 'verified' -> 'completed' (terminal success state).
-        if ($attempt->state === 'verified') {
-            $this->markAttemptCompleted($attempt->id);
-            $attempt = $this->getAttempt($attempt_key);
+        $token = $this->getAccessToken();
+        if (!$token) {
+            $this->Input->setErrors($this->getCommonError('general'));
+            return null;
         }
 
-        // Set the success message across session and controller for client confirmation display.
-        $this->setPaymentSuccessMessage($attempt, (string) $attempt->bkash_trx_id);
+        $reason = is_string($notes) && trim($notes) !== ''
+            ? substr(trim($notes), 0, 255)
+            : 'Customer Refund';
 
-        return $this->transactionResponse(
-            $attempt,
-            $this->decodeInvoiceAmounts($attempt->invoice_amounts),
-            'approved',
-            (string) $attempt->bkash_trx_id
-        );
+        $response = $this->request('/payment/refund', [
+            'paymentID' => $payment_id,
+            'trxID' => $trx_id,
+            'amount' => $this->formatPaisa($amount_paisa),
+            'sku' => 'Blesta-Refund',
+            'reason' => $reason
+        ], $token);
+
+        if (!$this->isSuccessfulApiResponse($response) || empty($response->refundTrxID)) {
+            $this->Input->setErrors($this->getCommonError('general'));
+            return null;
+        }
+
+        return [
+            'status' => 'refunded',
+            'transaction_id' => (string) $response->refundTrxID,
+            'reference_id' => $payment_id
+        ];
     }
 
     /**
      * Provisions the `bkash_payment_attempts` database table.
-     *
-     * SCHEMA ARCHITECTURE & DESIGN CHOICES:
-     *  - id: Auto-increment primary key for internal referencing.
-     *  - company_id & gateway_id: Enforces Blesta multi-tenancy boundaries.
-     *  - client_id: Links payment attempt to the customer.
-     *  - attempt_key: 64-character hex (32 cryptographically random bytes) used in callback URLs.
-     *  - bkash_payment_id: The unique ID generated by bKash during /create.
-     *  - bkash_trx_id: The final transaction receipt ID issued by bKash upon /execute.
-     *  - merchant_invoice_number: Our unique invoice reference sent to bKash ('BL-...').
-     *  - amount & currency: Total payment amount (DECIMAL 14,2) and currency code (BDT).
-     *  - invoice_amounts: JSON-encoded array of invoice allocations: [{"id": 1, "amount": "100.00"}].
-     *  - state: State machine tracking: 'created' -> 'redirected' -> 'executing' -> 'verified'/'completed'/'failed'.
-     *  - failure_reason: Diagnostic reason code if the attempt failed or was cancelled.
-     *  - verified_at, completed_at: Timestamps recording lifecycle milestones.
-     *  - expires_at: 30-minute expiration timestamp to reject stale callback attempts.
-     *  - Indexes: Unique constraints on attempt_key, bkash_payment_id, and bkash_trx_id prevent duplicates.
      */
     private function createAttemptTable()
     {
@@ -714,14 +815,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Records a new payment attempt row in `bkash_payment_attempts`.
-     *
-     * Initial attempt state is set to 'created'. Generates a 64-character secure hex
-     * token (`attempt_key`) that safely identifies this checkout session in callback URLs.
-     *
-     * @param array $data Attempt payload containing company_id, gateway_id, client_id, amount,
-     *                    invoice_amounts array, and merchant_invoice_number.
-     * @return array Created attempt summary array with row 'id', 'attempt_key', etc.
-     * @throws RuntimeException If company_id, gateway_id, or client_id are invalid.
      */
     private function createPaymentAttempt(array $data)
     {
@@ -758,16 +851,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Binds the bKash paymentID returned from /create and transitions state to 'redirected'.
-     *
-     * STATE MACHINE TRANSITION:
-     *   'created' -> 'redirected'
-     *
-     * This ensures that only attempts currently in the 'created' state can be bound,
-     * preventing race conditions or overwriting existing sessions.
-     *
-     * @param int $attempt_id Database row ID of the attempt
-     * @param string $payment_id The paymentID issued by bKash
-     * @throws RuntimeException If the attempt cannot be updated (e.g. invalid state)
      */
     private function bindPaymentId($attempt_id, $payment_id)
     {
@@ -787,12 +870,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Retrieves an attempt record from the database by its 64-character attempt key.
-     *
-     * Validates that $attempt_key conforms strictly to a 64-character lowercase hex format
-     * to avoid unnecessary database queries on malformed input.
-     *
-     * @param string $attempt_key The 64-character hexadecimal session identifier
-     * @return object|null Attempt database row object, or null if not found
      */
     private function getAttempt($attempt_key)
     {
@@ -808,22 +885,12 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Atomically claims a payment attempt for execution, locking out concurrent threads.
-     *
-     * CRITICAL RACE CONDITION DEFENSE:
-     * In web payment gateways, an offsite provider redirect and an asynchronous webhook/IPN
-     * can hit the server at the exact same millisecond.
-     * By using an atomic SQL UPDATE with `WHERE state IN ('redirected', 'verified')`,
-     * only ONE process will successfully affect 1 row and transition the state to 'executing'.
-     * Any other simultaneous request will affect 0 rows, preventing duplicate /execute API calls.
-     *
-     * @param int $attempt_id Database row ID of the attempt
-     * @return bool True if this process successfully claimed execution lock; false if already claimed
      */
     private function claimAttempt($attempt_id)
     {
         $record = new Record();
         $statement = $record->where('id', '=', $attempt_id)
-            ->where('state', 'in', ['redirected', 'verified'])
+            ->where('state', '=', 'redirected')
             ->update(self::ATTEMPT_TABLE, [
                 'state' => 'executing',
                 'updated_at' => gmdate('Y-m-d H:i:s')
@@ -834,16 +901,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Marks an attempt as verified after bKash /execute or /payment/status confirms payment capture.
-     *
-     * STATE MACHINE TRANSITION:
-     *   'executing' -> 'verified'
-     *
-     * Stores bKash's official transaction ID (trxID) and verified timestamp.
-     *
-     * @param int $attempt_id Database row ID of the attempt
-     * @param string $payment_id Expected bKash paymentID
-     * @param string $trx_id Provider transaction ID returned by bKash (e.g. '9K3801XXXX')
-     * @return bool True if updated successfully, false otherwise
      */
     private function markAttemptVerified($attempt_id, $payment_id, $trx_id)
     {
@@ -867,13 +924,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Marks an attempt as completed (the final terminal success state).
-     *
-     * STATE MACHINE TRANSITION:
-     *   'verified' -> 'completed'
-     *
-     * Invoked after Blesta has successfully recorded the transaction and applied it to invoices.
-     *
-     * @param int $attempt_id Database row ID of the attempt
      */
     private function markAttemptCompleted($attempt_id)
     {
@@ -889,12 +939,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Queries Blesta's core Transactions model to check if this payment was already recorded.
-     *
-     * Matches transaction_id against $attempt->bkash_payment_id for the specific client and gateway.
-     * Used to provide idempotency on repeated page refreshes or duplicate callback pings.
-     *
-     * @param object $attempt Attempt database row object
-     * @return object|null Blesta transaction object if found, or null
      */
     private function getExistingBlestaTransaction($attempt)
     {
@@ -924,14 +968,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Verifies that Blesta applied the transaction to the exact expected invoices and amounts.
-     *
-     * Reconciles the JSON invoice allocations stored in `bkash_payment_attempts` with
-     * the actual applied amounts recorded in Blesta's `transactions_applied` table.
-     * All comparisons are computed in integer paisa to prevent fractional rounding errors.
-     *
-     * @param object $attempt Attempt database row object
-     * @param object $transaction Blesta transaction object
-     * @return bool True if all invoice IDs and applied amounts match perfectly; false otherwise
      */
     private function expectedInvoicesApplied($attempt, $transaction)
     {
@@ -963,16 +999,14 @@ class Bkash extends NonmerchantGateway
     /**
      * Marks an attempt as failed with a diagnostic reason code.
      *
-     * Will NOT overwrite an attempt that has already reached the 'completed' state.
-     *
-     * @param int $attempt_id Database row ID of the attempt
-     * @param string $reason Diagnostic reason code (e.g. 'customer_cancelled_or_failed', 'verification_failed')
+     * SECURITY FIX (Bug #1):
+     * Strictly refuses to overwrite an attempt that has already reached 'verified' or 'completed' state.
      */
     private function markAttemptFailed($attempt_id, $reason)
     {
         $record = new Record();
         $record->where('id', '=', $attempt_id)
-            ->where('state', '!=', 'completed')
+            ->where('state', 'in', ['created', 'redirected', 'executing'])
             ->update(self::ATTEMPT_TABLE, [
                 'state' => 'failed',
                 'failure_reason' => substr($reason, 0, 100),
@@ -982,11 +1016,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Resets a payment attempt from 'executing' back to 'redirected' to allow retry.
-     *
-     * If an external API call timed out or crashed mid-flight, this method unlocks the attempt
-     * so subsequent callback attempts or client refreshes can re-attempt verification.
-     *
-     * @param int $attempt_id Database row ID of the attempt
      */
     private function resetAttemptForRetry($attempt_id)
     {
@@ -1001,14 +1030,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Checks if a bKash trxID has already been recorded in any other attempt.
-     *
-     * ANTI-REPLAY ATTACK GUARD:
-     * Ensures that a single valid bKash transaction receipt cannot be submitted multiple times
-     * across different invoices or attempts to obtain free services.
-     *
-     * @param string $trx_id The bKash transaction receipt ID to check
-     * @param int $attempt_id The current attempt ID to exclude from the search
-     * @return bool True if trxID already exists on another attempt; false if unique
      */
     private function providerTransactionExists($trx_id, $attempt_id)
     {
@@ -1023,20 +1044,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Obtains an OAuth access/id_token for bKash API requests, utilizing local caching.
-     *
-     * AUTHENTICATION BUSINESS FLOW:
-     *  1. Checks Blesta's core cache (CacheFactory) for a valid unexpired token.
-     *  2. If missing or expiring soon, calls bKash `/token/grant` with API credentials.
-     *  3. Header credentials:
-     *     - username: API Username
-     *     - password: API Password
-     *  4. JSON body:
-     *     - app_key: bKash App Key
-     *     - app_secret: bKash App Secret
-     *  5. Caches the returned `id_token` for (expires_in - 60) seconds (up to 3000 seconds)
-     *     providing a safety buffer to prevent token expiry mid-request.
-     *
-     * @return string|null The active bKash id_token string, or null on authentication failure
      */
     private function getAccessToken()
     {
@@ -1080,19 +1087,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Executes an HTTPS POST request to the bKash Tokenized Checkout REST API.
-     *
-     * HARDENED NETWORK & LOGGING ARCHITECTURE:
-     *  - Uses cURL with strict SSL peer & host verification (CURLOPT_SSL_VERIFYPEER, CURLOPT_SSL_VERIFYHOST = 2).
-     *  - Enforces HTTPS protocol only (CURLPROTO_HTTPS).
-     *  - Enforces explicit timeouts: 10s connect, 30s total transfer.
-     *  - Sensitive Data Scrubbing: Masks 'app_secret' and 'password' before writing to Blesta gateway logs.
-     *  - Comprehensive audit logging of endpoint URL, request body, HTTP code, and parsed response.
-     *
-     * @param string $endpoint The API path (e.g. '/token/grant', '/create', '/execute', '/payment/status')
-     * @param array $payload JSON payload data to send in request body
-     * @param string|null $token Optional OAuth bearer token for authenticated endpoints
-     * @param array $extra_headers Optional additional HTTP headers
-     * @return object|null Decoded JSON response object, or null on HTTP or JSON parse error
      */
     private function request($endpoint, array $payload, $token = null, array $extra_headers = [])
     {
@@ -1148,7 +1142,7 @@ class Bkash extends NonmerchantGateway
             'status_code' => ($response->statusCode ?? null),
             'transaction_status' => ($response->transactionStatus ?? null),
             'payment_id' => ($response->paymentID ?? null),
-            'transaction_id' => ($response->trxID ?? null),
+            'transaction_id' => ($response->trxID ?? $response->refundTrxID ?? null),
             'currency' => ($response->currency ?? null),
             'amount' => ($response->amount ?? null)
         ];
@@ -1164,12 +1158,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Checks if a bKash API response signifies a successful operation (statusCode 0000).
-     *
-     * bKash uses standard statusCode '0000' across all API endpoints to denote success.
-     * Any other code indicates an error (e.g., 2005 = Invalid phone number, 2029 = Duplicate trx).
-     *
-     * @param mixed $response Decoded API response object
-     * @return bool True if response is an object with statusCode '0000'; false otherwise
      */
     private function isSuccessfulApiResponse($response)
     {
@@ -1178,18 +1166,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Verifies that a payment execute/status response represents a genuine completed transaction.
-     *
-     * MULTI-POINT SECURITY RECONCILIATION:
-     *  1. API Status Code: Must be '0000'.
-     *  2. Transaction Status: Must be exactly 'Completed' (not 'Initiated', 'Failed', etc.).
-     *  3. Currency: Must be uppercase 'BDT'.
-     *  4. Provider Transaction ID: Must contain a non-empty `trxID`.
-     *  5. Exact Amount Matching: Verifies that the amount received by bKash matches the invoice
-     *     attempt amount to the exact paisa (e.g. 15000 paisa == 15000 paisa).
-     *
-     * @param mixed $response Decoded response from /execute or /payment/status
-     * @param object $attempt The payment attempt row object
-     * @return bool True if payment meets all verification criteria; false otherwise
      */
     private function isCompletedPayment($response, $attempt)
     {
@@ -1211,13 +1187,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Sets the localized payment success message across the active session and controller.
-     *
-     * Informs the client that their payment was successful, displays the exact paid amount,
-     * the official bKash Transaction ID (trxID), and notes that an email confirmation receipt was dispatched.
-     *
-     * @param object $attempt Payment attempt database record
-     * @param string|null $trx_id Official bKash transaction receipt ID (trxID)
-     * @return string Formatted HTML success message
      */
     private function setPaymentSuccessMessage($attempt, $trx_id = null)
     {
@@ -1280,37 +1249,19 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Formats the standardized transaction array returned to Blesta core.
-     *
-     * Blesta's GatewayPayments processor requires non-merchant gateways to return this
-     * structure to log the transaction and apply payment to invoices.
-     *
-     * Return Array Fields:
-     *  - client_id: The ID of the client being credited.
-     *  - amount: The decimal amount credited (e.g. "150.00").
-     *  - currency: Currency code ('BDT').
-     *  - status: Transaction status ('approved', 'declined', etc.).
-     *  - transaction_id: The remote transaction ID (the bKash trxID receipt number).
-     *  - reference_id: The gateway payment ID (bkash_payment_id).
-     *  - parent_transaction_id: Null for primary checkout payments.
-     *  - invoices: Array of invoice allocations [{"id": 1, "amount": "100.00"}].
-     *
-     * @param object $attempt The attempt row object
-     * @param array $invoices Array of invoice allocations
-     * @param string $status Transaction status ('approved' or 'declined')
-     * @param string|null $trx_id Optional bKash trxID override
-     * @return array Standardized Blesta transaction array
      */
     private function transactionResponse($attempt, array $invoices, $status, $trx_id = null)
     {
-        $resolved_trx = (string) ($trx_id ?: $attempt->bkash_trx_id);
+        $resolved_trx = trim((string) ($trx_id ?: $attempt->bkash_trx_id));
+        $payment_id = trim((string) $attempt->bkash_payment_id);
 
         return [
             'client_id' => (int) $attempt->client_id,
             'amount' => (string) $attempt->amount,
             'currency' => 'BDT',
             'status' => $status,
-            'transaction_id' => $resolved_trx !== '' ? $resolved_trx : (string) $attempt->bkash_payment_id,
-            'reference_id' => (string) ($attempt->bkash_payment_id ?: $resolved_trx),
+            'transaction_id' => $resolved_trx !== '' ? $resolved_trx : ($payment_id !== '' ? $payment_id : null),
+            'reference_id' => $payment_id !== '' ? $payment_id : $resolved_trx,
             'parent_transaction_id' => null,
             'invoices' => $invoices
         ];
@@ -1318,17 +1269,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Constructs the HMAC-signed callback URL that bKash redirects to after payment.
-     *
-     * SECURITY & ANTI-TAMPERING:
-     *  - The callback URL points to Blesta's gateway callback router: `/callback/gw/<company_id>/bkash/`.
-     *  - In Live mode, enforces that the base URL is public and uses HTTPS (rejects localhost/IPs).
-     *  - Appends `attempt=<attempt_key>` and `sig=<hmac_sha256>`.
-     *  - The signature is calculated as: `hash_hmac('sha256', attempt_key, sha256_binary(app_secret))`.
-     *  - This ensures that third parties cannot forge or modify callback queries.
-     *
-     * @param array $attempt Attempt data containing 'attempt_key'
-     * @return string Fully qualified and signed callback URL
-     * @throws RuntimeException If callback URL is not configured or fails HTTPS check in live mode
      */
     private function buildCallbackUrl(array $attempt)
     {
@@ -1366,15 +1306,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Validates the HMAC signature received in a callback request.
-     *
-     * CRYPTOGRAPHIC INTEGRITY:
-     *  - Validates format: 64-char lowercase hex for both key and signature.
-     *  - Recalculates expected HMAC-SHA256 signature using the configured `app_secret`.
-     *  - Uses timing-safe string comparison `hash_equals()` to prevent timing attacks.
-     *
-     * @param string $attempt_key The 64-character attempt key from GET
-     * @param string $signature The 64-character HMAC signature from GET
-     * @return bool True if signature is cryptographically valid; false otherwise
      */
     private function validCallbackSignature($attempt_key, $signature)
     {
@@ -1395,15 +1326,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Validates that the checkout URL returned by bKash belongs to official bKash hostnames.
-     *
-     * SSRF & OPEN-REDIRECT MITIGATION:
-     * Prevents malicious or compromised API responses from redirecting customers to phishing portals.
-     * Strictly verifies HTTPS scheme and matches host against whitelist:
-     *  - Sandbox: `sandbox.payment.bkash.com` or `tokenized.sandbox.bka.sh`
-     *  - Live: `payment.bkash.com` or `tokenized.pay.bka.sh`
-     *
-     * @param string|null $url The redirect URL to validate
-     * @return bool True if URL is HTTPS and belongs to an authorized bKash host; false otherwise
      */
     private function isAllowedCheckoutUrl($url)
     {
@@ -1426,8 +1348,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Returns the base bKash API URL depending on current Sandbox setting.
-     *
-     * @return string The sandbox or production base URL
      */
     private function baseUrl()
     {
@@ -1436,8 +1356,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Determines whether the gateway is running in Sandbox (test) mode.
-     *
-     * @return bool True if sandbox mode is active, false for live production
      */
     private function isSandbox()
     {
@@ -1446,9 +1364,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Safely reads a string value from the gateway metadata settings.
-     *
-     * @param string $key The configuration key to look up
-     * @return string The configuration value, or empty string if not set
      */
     private function metaValue($key)
     {
@@ -1459,13 +1374,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Normalizes an array of invoice allocation amounts into a standardized structure.
-     *
-     * Converts mixed inputs (e.g. ['invoice_id' => 1, 'amount' => 50] or [1 => 50])
-     * into a standard array of ['id' => <int>, 'amount' => '<decimal_string>'].
-     * Returns empty array if any item is non-numeric or invalid.
-     *
-     * @param array $invoice_amounts List of invoice allocations
-     * @return array Standardized array of invoice allocations, or empty array on error
      */
     private function normalizeInvoiceAmounts(array $invoice_amounts)
     {
@@ -1492,9 +1400,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Decodes a JSON-encoded invoice_amounts string from the database.
-     *
-     * @param string|null $invoice_amounts JSON string from bkash_payment_attempts table
-     * @return array Parsed invoice array, or empty array on failure
      */
     private function decodeInvoiceAmounts($invoice_amounts)
     {
@@ -1505,16 +1410,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Converts a decimal currency string/float into integer paisa (sub-unit cents).
-     *
-     * FINANCIAL COMPUTATION SAFETY:
-     * 1 BDT = 100 Paisa.
-     * Floating-point numbers in PHP (and all IEEE 754 languages) cannot represent all
-     * decimal fractions accurately (e.g. (0.1 + 0.2) * 100 becomes 29.999999999999996).
-     * This method splits strings into whole and fraction components to perform exact integer math,
-     * ensuring accounting precision.
-     *
-     * @param mixed $amount The decimal amount to convert
-     * @return int|null Integer paisa (e.g. 150.50 -> 15050), or null if invalid
      */
     private function toPaisa($amount)
     {
@@ -1531,11 +1426,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Formats an integer paisa value into a standard 2-decimal currency string.
-     *
-     * Example: 15050 paisa -> "150.50"
-     *
-     * @param int $amount Integer paisa amount
-     * @return string Formatted decimal string with 2 decimal places
      */
     private function formatPaisa($amount)
     {
@@ -1546,9 +1436,6 @@ class Bkash extends NonmerchantGateway
 
     /**
      * Renders a client-facing error view with a localized error message.
-     *
-     * @param string $language_key Language definition key (e.g. 'Bkash.error.gateway')
-     * @return string Rendered error HTML markup
      */
     private function errorPage($language_key)
     {

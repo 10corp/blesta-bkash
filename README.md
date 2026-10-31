@@ -1,52 +1,65 @@
 # bKash Tokenized Checkout — Blesta Non-Merchant Gateway
 
 > **Accept BDT invoice payments using bKash Tokenized Checkout inside Blesta billing.**
-> Compatible with **Blesta 5.x / 6.0+** · Verified with **Blesta Extension Dev Kit** · Supports **bKash Tokenized API v1.2.0-beta**
+> Strictly for **Blesta 6.0+** · Requires **PHP 8.4+** · Verified with **Blesta Extension Dev Kit** · Supports **bKash Tokenized API v1.2.0-beta**
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-  - [Merchant vs. Non-Merchant Gateway Architecture](#merchant-vs-non-merchant-gateway-architecture)
-  - [Tokenized Checkout Flow (`mode=0011`)](#tokenized-checkout-flow-mode0011)
-- [Features](#features)
-- [Requirements](#requirements)
-- [File Structure](#file-structure)
-- [Blesta 6.0 Dev Kit Compliance](#blesta-60-dev-kit-compliance)
-  - [Admin UI (Paradigm / Bootstrap 5) vs. Client Portal (Bootstrap 4)](#admin-ui-paradigm--bootstrap-5-vs-client-portal-bootstrap-4)
-  - [Universal Transaction Return Shape](#universal-transaction-return-shape)
-  - [Metadata & Icon Configuration](#metadata--icon-configuration)
-- [Installation](#installation)
-  - [Method 1: Manual Installation (Recommended)](#method-1-manual-installation-recommended)
-  - [Method 2: Composer Installation](#method-2-composer-installation)
-- [Configuration](#configuration)
-- [bKash Sandbox Testing Guide & Credentials](#bkash-sandbox-testing-guide--credentials)
-  - [Official Sandbox API Credentials](#official-sandbox-api-credentials)
-  - [Regular Active Customer Test Wallets](#regular-active-customer-test-wallets)
-  - [End-to-End Sandbox Testing Walkthrough](#end-to-end-sandbox-testing-walkthrough)
-- [Architectural Lifecycles](#architectural-lifecycles)
-  - [High-Level Payment & Cancellation Flow](#high-level-payment--cancellation-flow)
-  - [1. Payment Initiation Lifecycle (`buildProcess()`) — 9 Steps](#1-payment-initiation-lifecycle-buildprocess--9-steps)
-  - [2. Callback Validation & Execution Lifecycle (`validate()`) — 10 Steps](#2-callback-validation--execution-lifecycle-validate--10-steps)
-  - [3. Client Return Security (`success()`)](#3-client-return-security-success)
-  - [Cancellation Flow Comparison (Paysera Pattern)](#cancellation-flow-comparison-paysera-pattern)
-- [Database Schema & Audit Preservation](#database-schema--audit-preservation)
-  - [Column & Index Reference](#column--index-reference)
-  - [State Machine Reference](#state-machine-reference)
-  - [Audit Preservation on Uninstall](#audit-preservation-on-uninstall)
-- [Code Architecture, Constants & Key Methods](#code-architecture-constants--key-methods)
-  - [Gateway Constants](#gateway-constants)
-  - [Public Blesta Contract Methods](#public-blesta-contract-methods)
-  - [Private Internal Engine Methods](#private-internal-engine-methods)
-  - [View Templates (`.pdt`)](#view-templates-pdt)
-- [Security Architecture & Verification](#security-architecture--verification)
-- [Step-by-Step Developer Guide](#step-by-step-developer-guide)
-  - [How to Modify Settings or Add a New Field](#how-to-modify-settings-or-add-a-new-field)
-  - [How to Add a New Language Translation (e.g., `bn_bd`)](#how-to-add-a-new-language-translation-eg-bn_bd)
-- [Error Reference](#error-reference)
-- [Troubleshooting Guide](#troubleshooting-guide)
-- [bKash API Quick Reference](#bkash-api-quick-reference)
+- [bKash Tokenized Checkout — Blesta Non-Merchant Gateway](#bkash-tokenized-checkout--blesta-non-merchant-gateway)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+    - [Merchant vs. Non-Merchant Gateway Architecture](#merchant-vs-non-merchant-gateway-architecture)
+    - [Tokenized Checkout Flow (`mode=0011`)](#tokenized-checkout-flow-mode0011)
+  - [Features](#features)
+  - [Requirements](#requirements)
+  - [File Structure](#file-structure)
+  - [Blesta 6.0 Dev Kit Compliance](#blesta-60-dev-kit-compliance)
+    - [Admin UI (Paradigm / Bootstrap 5) vs. Client Portal (Bootstrap 4)](#admin-ui-paradigm--bootstrap-5-vs-client-portal-bootstrap-4)
+    - [Universal Transaction Return Shape](#universal-transaction-return-shape)
+    - [Metadata \& Icon Configuration](#metadata--icon-configuration)
+  - [Installation](#installation)
+    - [Method 1: Manual Installation (Recommended)](#method-1-manual-installation-recommended)
+    - [Method 2: Composer Installation](#method-2-composer-installation)
+  - [Configuration](#configuration)
+  - [bKash Sandbox Testing Guide \& Credentials](#bkash-sandbox-testing-guide--credentials)
+    - [Official Sandbox API Credentials](#official-sandbox-api-credentials)
+    - [Regular Active Customer Test Wallets](#regular-active-customer-test-wallets)
+    - [End-to-End Sandbox Testing Walkthrough](#end-to-end-sandbox-testing-walkthrough)
+  - [Architectural Lifecycles](#architectural-lifecycles)
+    - [High-Level Payment \& Cancellation Flow](#high-level-payment--cancellation-flow)
+    - [1. Payment Initiation Lifecycle (`buildProcess()`) — 9 Steps](#1-payment-initiation-lifecycle-buildprocess--9-steps)
+    - [2. Callback Validation \& Execution Lifecycle (`validate()`) — 10 Steps](#2-callback-validation--execution-lifecycle-validate--10-steps)
+    - [3. Client Return Security (`success()`) \& Success Confirmation Display](#3-client-return-security-success--success-confirmation-display)
+    - [4. Automatic Refund Processing Lifecycle (`refund()`)](#4-automatic-refund-processing-lifecycle-refund)
+      - [Step-by-Step Refund Lifecycle:](#step-by-step-refund-lifecycle)
+      - [How to Trigger a Refund in Blesta:](#how-to-trigger-a-refund-in-blesta)
+  - [Database Schema \& Audit Preservation](#database-schema--audit-preservation)
+    - [Column \& Index Reference](#column--index-reference)
+    - [State Machine Reference](#state-machine-reference)
+    - [Audit Preservation on Uninstall](#audit-preservation-on-uninstall)
+  - [Code Architecture, Constants \& Key Methods](#code-architecture-constants--key-methods)
+    - [Gateway Constants](#gateway-constants)
+    - [Public Blesta Contract Methods](#public-blesta-contract-methods)
+    - [Private Internal Engine Methods](#private-internal-engine-methods)
+    - [View Templates (`.pdt`)](#view-templates-pdt)
+  - [Security Architecture \& Verification](#security-architecture--verification)
+  - [Step-by-Step Developer Guide](#step-by-step-developer-guide)
+    - [How to Modify Settings or Add a New Field](#how-to-modify-settings-or-add-a-new-field)
+    - [How to Add a New Language Translation (e.g., `bn_bd`)](#how-to-add-a-new-language-translation-eg-bn_bd)
+  - [Error Reference](#error-reference)
+  - [Troubleshooting Guide](#troubleshooting-guide)
+  - [bKash API Quick Reference](#bkash-api-quick-reference)
+  - [Changelog](#changelog)
+    - [\[1.2.0\] - 2026-10-31](#120---2026-10-31)
+      - [Added](#added)
+      - [Changed](#changed)
+    - [\[1.1.0\] - 2026-10-30](#110---2026-10-30)
+      - [Added](#added-1)
+      - [Changed](#changed-1)
+    - [\[1.0.0\] - 2026-10-19](#100---2026-10-19)
+      - [Added](#added-2)
 
 ---
 
@@ -71,12 +84,13 @@ The gateway implements the **Tokenized Checkout (Without Agreement)** flow (`mod
 | Feature | Description |
 |---|---|
 | **Payment Flow** | Hosted bKash Checkout URL (`mode=0011`, `intent=sale`) with instant return |
+| **Refund API Support** | Direct full and partial refund processing from Blesta admin via bKash Tokenized Refund API (`/payment/refund`) |
 | **Blesta 6 Dev Kit Compliant** | Fully compliant with official Blesta 6.0 Dev Kit standards and specifications |
 | **Theme-Aware UI** | Dual light/dark SVG logos and Bootstrap 5 Paradigm admin form with native Dark Mode support |
 | **Sub-unit Integer Math** | BDT-only processing using integer paisa calculations to eliminate IEEE 754 floating-point precision bugs |
 | **Sandbox / Test Mode** | Seamless toggle in admin settings with built-in support for official bKash test credentials |
 | **Token Caching** | High-performance OAuth Bearer token caching via Blesta's `CacheFactory` with a 3000s safety buffer |
-| **Race Condition Protection** | Atomic DB row-level state locking (`claimAttempt()`) preventing double-execution between concurrent webhooks and browser redirects |
+| **Race Condition Protection** | Atomic DB row-level state locking (`claimAttempt()`) preventing double-execution between concurrent server-to-server callbacks and browser redirects |
 | **Replay & Tampering Guard** | Timing-safe (`hash_equals`) HMAC-SHA256 callback signatures and unique provider `trxID` anti-replay validation |
 | **SSRF & Open Redirect Guard** | Strict hostname whitelisting (`isAllowedCheckoutUrl()`) before redirecting clients to `bkashURL` |
 | **Network Drop Resilience** | Automatic fallback from `/execute` to `/payment/status` to prevent charging customers without recording payments |
@@ -90,8 +104,8 @@ The gateway implements the **Tokenized Checkout (Without Agreement)** flow (`mod
 
 | Requirement | Minimum Version | Notes |
 |---|---|---|
-| **Blesta** | 5.0+ / 6.0+ | Fully verified against Blesta 6.0 Extension Dev Kit |
-| **PHP** | 7.4, 8.0, 8.1, 8.2, 8.3 | Compatible with PHP 8.2+ modern type and cryptographic standards |
+| **Blesta** | 6.0+ only | Built specifically for Blesta 6.0 Paradigm architecture (Blesta 5.x is not supported) |
+| **PHP** | 8.4+ only | Strictly requires PHP 8.4 or higher (utilizes PHP 8.4 modern type safety and features) |
 | **PHP Extensions** | `curl`, `json`, `openssl` | Standard on modern PHP hosting environments |
 | **SSL / TLS** | HTTPS required for Live | bKash requires public HTTPS URLs for production callbacks |
 | **bKash Account** | Merchant Account | Tokenized Checkout API (`v1.2.0-beta`) credentials from bKash |
@@ -346,14 +360,51 @@ When bKash redirects the user or sends a callback to Blesta, `validate()` execut
   ```
 - Returns the validated bKash transaction receipt ID (`trxID`) and invoice allocations so the client confirmation panel accurately displays their receipt number, payment amount, and invoice ID.
 
-### Cancellation Flow Comparison (Paysera Pattern)
+### 4. Automatic Refund Processing Lifecycle (`refund()`)
 
-Following the official Blesta `gateway-paysera` and `gateway-sslcommerz` patterns:
-- When a customer clicks "Close" or "Cancel" on the bKash screen, bKash redirects back with `?status=cancel`.
-- `validate()` marks the local attempt as `failed` without throwing unhandled exceptions and registers `Bkash.error.cancelled`.
-- `success()` intercepts the unapproved state and displays a clean alert explaining that **no funds were deducted and their invoice remains open**, allowing the customer to retry immediately.
+The module provides full native integration with bKash's Tokenized Checkout Refund API (`/payment/refund`), allowing administrators to issue full or partial refunds directly from Blesta with a single click.
 
----
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Blesta Administrator
+    participant Blesta as Blesta Core
+    participant Module as Bkash::refund()
+    participant DB as bkash_payment_attempts
+    participant API as bKash Refund API
+
+    Admin->>Blesta: Edit Transaction -> Refund (Checks "Process with Gateway")
+    Blesta->>Module: refund($reference_id, $transaction_id, $amount, $notes)
+    alt If reference_id is empty or duplicate of trxID
+        Module->>DB: SELECT bkash_payment_id WHERE bkash_trx_id = $trx_id
+        DB-->>Module: Returns stored paymentID
+    end
+    Module->>API: POST /tokenized/checkout/payment/refund
+    Note over Module,API: Payload: paymentID, trxID, amount, sku, reason
+    API-->>Module: HTTP 200: {statusCode: "0000", refundTrxID: "...", transactionStatus: "Completed"}
+    Module-->>Blesta: Returns ['status' => 'refunded', 'transaction_id' => refundTrxID, 'reference_id' => paymentID]
+    Blesta-->>Admin: Transaction marked refunded; invoice/credit adjusted
+```
+
+#### Step-by-Step Refund Lifecycle:
+1. **Step 1 — Sub-unit Integer Math Validation**: Converts refund `$amount` to integer paisa (`toPaisa()`). Blocks zero, negative, or fractional sub-paisa amounts.
+2. **Step 2 — Smart `paymentID` Fallback Resolution**: bKash requires both `paymentID` and `trxID`. If Blesta provides only the receipt number in both fields or passes an empty reference, the module automatically resolves the original `bkash_payment_id` from the `bkash_payment_attempts` audit table.
+3. **Step 3 — Token Authentication**: Fetches an active OAuth Bearer token from local cache or bKash `/token/grant`.
+4. **Step 4 — API Dispatch**: Sends a secured POST request to `/payment/refund` with `paymentID`, `trxID`, `amount`, `sku: "Blesta-Refund"`, and sanitized reason notes.
+5. **Step 5 — Response Verification & Audit Logging**: Verifies `statusCode: '0000'`, logs `refundTrxID` into Blesta's Gateway Log, and returns standard refund data array to Blesta core.
+
+#### How to Trigger a Refund in Blesta:
+1. In the Blesta Admin Portal, go to **Billing → Transactions**.
+2. Locate the specific bKash payment transaction and click **Edit** (or select **Refund** from the row options).
+3. Specify the refund amount (full or partial amount up to the original transaction total).
+4. **Crucial**: Ensure the **"Process with Gateway"** checkbox is checked.
+5. Click **Save**. Blesta dispatches the API request to bKash and updates the invoice balance accordingly.
+
+> [!IMPORTANT]
+> **Merchant Account Prerequisites for Refunds:**
+> - **Wallet Balance**: Your bKash merchant collection/disbursement wallet must have sufficient funds. If funds were already settled or swept to your bank account, the refund API call will fail.
+> - **API Scope**: Most live accounts have refund scope enabled by default. If your account returns permission errors, contact your bKash Key Account Manager (KAM) to enable the `/payment/refund` endpoint.
+> - **Time Window**: bKash typically permits refunds within 15 to 30 days of the original payment execution date.
 
 ## Database Schema & Audit Preservation
 
@@ -441,6 +492,7 @@ All core gateway logic resides in `bkash.php`.
 - `buildProcess(array $contact_info, $amount, array $invoice_amounts = null, array $options = null)`: Runs the 9-step payment initiation lifecycle and renders `views/default/process.pdt`.
 - `validate(array $get, array $post)`: Runs the 10-step server-side callback verification and payment capture pipeline.
 - `success(array $get, array $post)`: Runs the read-only client return check and transitions verified attempts to `completed`.
+- `refund($reference_id, $transaction_id, $amount, $notes = null)`: Executes bKash Refund API (`/payment/refund`) with original `paymentID` and `trxID`, returning standard refunded transaction status.
 
 ### Private Internal Engine Methods
 
@@ -471,7 +523,7 @@ The integration has been rigorously verified against malicious exploitation vect
 | **Integer Paisa Arithmetic** | `toPaisa()` / `buildProcess()` | Eliminates IEEE 754 floating-point discrepancies during currency comparisons. |
 | **SSRF & Open Redirect Guard** | `isAllowedCheckoutUrl()` | Blocks redirection to untrusted domains if an API response is ever tampered with. |
 | **Timing-Safe HMAC Verification** | `validate()` (`hash_equals`) | Prevents callback URL forgery and timing side-channel attacks. |
-| **Atomic Concurrency Mutex** | `claimAttempt()` | Prevents double-execution and double-crediting when webhooks and redirects race. |
+| **Atomic Concurrency Mutex** | `claimAttempt()` | Prevents double-execution and double-crediting when server-to-server callbacks and redirects race. |
 | **Execute + Status Fallback** | `validate()` | Queries `/payment/status` if `/execute` drops, preventing unrecorded charges. |
 | **Anti-Replay `trxID` Guard** | `providerTransactionExists()` | Guarantees a single bKash `trxID` can never be replayed to credit another invoice. |
 | **Log Credential Scrubbing** | `request()` | Masks `app_secret`, `password`, and tokens with `[redacted]` before logging. |
@@ -564,7 +616,60 @@ Detailed internationalization instructions are also included directly inside `la
 | `/create` | `POST` | `Authorization`, `X-APP-Key` | Initializes transaction (`mode=0011`); returns `paymentID` & `bkashURL` |
 | `/execute` | `POST` | `Authorization`, `X-APP-Key` | Finalizes transaction after customer OTP & PIN approval; returns `trxID` |
 | `/payment/status` | `POST` | `Authorization`, `X-APP-Key` | Fallback query to verify payment state if `/execute` times out |
+| `/payment/refund` | `POST` | `Authorization`, `X-APP-Key` | Issues full or partial refunds for completed transactions; returns `refundTrxID` |
 
 ---
 
-**Maintained for Blesta 5.x / 6.0+** · Verified with **Blesta Extension Dev Kit** · Tested with **bKash Tokenized Checkout API v1.2.0-beta**.
+## Changelog
+
+All notable changes to the bKash Non-Merchant Gateway module are documented here.
+
+### [1.3.0] - 2026-10-31
+
+#### Changed
+- **PHP 8.4+ Exclusive Platform Requirement**: Raised minimum PHP requirement to PHP 8.4+ (`PHP_VERSION_ID >= 80400`) in `Bkash::__construct()` and `composer.json` (`"php": ">=8.4"`). Environments with PHP < 8.4 are blocked with an explicit runtime exception.
+- **Blesta 6.0+ Exclusivity**: Enforced Blesta 6.0+ runtime requirement, explicitly dropping legacy Blesta 5.x compatibility.
+- **Modern PHP 8.4 Typed Properties**: Adopted PHP 8.4 typed properties (`private array $meta`, `protected string $currency`) for enhanced type safety.
+
+### [1.2.0] - 2026-10-31
+
+#### Added
+- **Direct Refund API Support (`Bkash::refund`)**: Integrated bKash Tokenized Checkout `/payment/refund` endpoint to process full and partial refunds directly from the Blesta admin panel.
+- **Smart `paymentID` Fallback Resolution**: Added automated database lookup from `bkash_payment_attempts` when Blesta passes empty reference IDs or duplicates the `trxID` during refund requests.
+- **Gateway Log Refund Tracking**: Added `refundTrxID` capture and response code tracking in Blesta's Gateway Logs.
+- **Client Confirmation Banner**: Injected a prominent, styled Bootstrap 4 / FontAwesome success message on `client/pay/received/` displaying exact paid BDT amount, bKash `trxID`, and email dispatch confirmation.
+- **Multi-Tenant State Protection**: Hardened `markAttemptFailed()` at the database query level with `WHERE state IN ('created', 'redirected', 'executing')`, guaranteeing `verified` and `completed` records can never be downgraded to `failed`.
+
+#### Changed
+- **Anti-Tampering Sequence**: Reordered `validate()` and `success()` state checks so already-verified attempts immediately render approved confirmations without inspecting unsigned query parameters (`?status=cancel`).
+- **Atomic Mutex Optimization**: Streamlined `claimAttempt()` to `WHERE state = 'redirected'` to guarantee that captured transactions cannot re-enter execution state.
+- **Transaction ID Mapping**: Mapped bKash `trxID` to Blesta `transaction_id` (searchable in admin) and bKash `paymentID` to `reference_id`.
+- **License & Authors**: Standardized license to `MIT` across `composer.json` and `LICENSE`, and set author attribution to `10Corp Web Services`.
+- **Documentation**: Replaced generic "webhook" references with precise "server-to-server callback verification" and added complete refund workflow guide.
+
+### [1.1.0] - 2026-10-30
+
+#### Added
+- **Blesta 6.0 Paradigm / Bootstrap 5 Admin View**: Fully converted `views/default/settings.pdt` to Bootstrap 5 card utilities, form-control, form-label, and Bootstrap Icons (`bi-wallet2`, `bi-key`, `bi-gear`).
+- **Native Dark Mode Support**: Implemented CSS theme awareness supporting both Light and Dark modes.
+- **Integer Paisa Financial Arithmetic**: Implemented sub-unit integer paisa math (`toPaisa`, `formatPaisa`) to eliminate IEEE 754 floating-point precision issues.
+- **SSRF & Open-Redirect Whitelisting**: Added domain whitelisting (`sandbox.payment.bkash.com`, `payment.bkash.com`, `tokenized.sandbox.bka.sh`, `tokenized.pay.bka.sh`) on checkout redirect URLs.
+- **Sensitive Credential Scrubbing**: Added `[redacted]` masking in gateway logs for `app_secret` and `password`.
+
+#### Changed
+- Maintained client checkout view (`views/default/process.pdt`) on Bootstrap 4 + FontAwesome per Blesta 6.0 Dev Kit standards.
+- Enforced strict checkbox state normalization to `'false'` in `editSettings()`.
+
+### [1.0.0] - 2026-10-19
+
+#### Added
+- Initial release of the bKash Tokenized Checkout Non-Merchant Gateway for Blesta.
+- Support for bKash Tokenized API `v1.2.0-beta` ("Without Agreement", `mode=0011`, `intent=sale`).
+- Token caching using Blesta's `CacheFactory` with 3000s TTL.
+- Automatic creation and lifecycle tracking with `bkash_payment_attempts` database table.
+- HMAC-SHA256 tamper-proof callback URL generation and timing-safe verification.
+- Automatic inquiry fallback from `/execute` to `/payment/status`.
+
+---
+
+**Targeted Exclusively for Blesta 6.0+ and PHP 8.4+** · Verified with **Blesta Extension Dev Kit** · Tested with **bKash Tokenized Checkout API v1.2.0-beta**.
