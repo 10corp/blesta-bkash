@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-10-31
+
+### Added
+- **Automated Client Refund Receipt Email**: Integrated automated, mobile-responsive HTML and plain-text refund confirmation emails dispatched directly to the customer upon successful bKash refund execution.
+- **Auditable Mail Logging**: Configured refund notifications to automatically log to Blesta's `log_emails` table tied to the client account ID.
+- **Dispute-Proof Refund Receipt Details**: Email receipt prominently displays the bKash `refundTrxID`, original `trxID`, amount, invoice reference, processing date, and official verification instructions (SMS 16247 & bKash App Inbox).
+- **Admin Settings Notification Toggle**: Added a `Send Refund Email to Client` switch under **Customer Notifications** in gateway settings (`settings.pdt`).
+
+---
+
 ## [1.3.0] - 2026-10-31
 
 ### Changed

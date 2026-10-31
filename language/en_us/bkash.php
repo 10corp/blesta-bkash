@@ -46,14 +46,17 @@ $lang['Bkash.username'] = 'API Username';
 $lang['Bkash.password'] = 'API Password';
 $lang['Bkash.sandbox'] = 'Enable Sandbox (Test Mode)';
 $lang['Bkash.live'] = 'Enable Live Payments';
+$lang['Bkash.email_refund'] = 'Email Refund Confirmation to Client';
 
 // ── Admin Settings Form Helper & Warning Notes ───────────────────────────────
 $lang['Bkash.settings.mode_note'] = 'Only one mode can be enabled at a time. Live payments require Live API credentials and a public HTTPS callback URL.';
 $lang['Bkash.settings.credentials_note'] = 'App Secret and Password are encrypted in storage. Password fields are blank; enter all credentials again when saving.';
+$lang['Bkash.settings.email_refund_note'] = 'When enabled, an automated confirmation receipt email containing the bKash refund TrxID is dispatched to the client whenever a refund is processed.';
 
 // ── Admin Settings Card Section Headers ──────────────────────────────────────
 $lang['Bkash.section.api_credentials'] = 'API Credentials';
 $lang['Bkash.section.mode'] = 'Gateway Mode';
+$lang['Bkash.section.notifications'] = 'Customer Notifications';
 
 // ── Client-Facing Checkout Button ────────────────────────────────────────────
 $lang['Bkash.buildprocess.submit'] = 'Continue to bKash';

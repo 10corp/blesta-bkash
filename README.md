@@ -85,6 +85,7 @@ The gateway implements the **Tokenized Checkout (Without Agreement)** flow (`mod
 |---|---|
 | **Payment Flow** | Hosted bKash Checkout URL (`mode=0011`, `intent=sale`) with instant return |
 | **Refund API Support** | Direct full and partial refund processing from Blesta admin via bKash Tokenized Refund API (`/payment/refund`) |
+| **Automated Refund Receipts** | Automated, dispute-proof HTML and plain-text email receipts with `refundTrxID` and verification guidance sent to the client |
 | **Blesta 6 Dev Kit Compliant** | Fully compliant with official Blesta 6.0 Dev Kit standards and specifications |
 | **Theme-Aware UI** | Dual light/dark SVG logos and Bootstrap 5 Paradigm admin form with native Dark Mode support |
 | **Sub-unit Integer Math** | BDT-only processing using integer paisa calculations to eliminate IEEE 754 floating-point precision bugs |
@@ -623,6 +624,14 @@ Detailed internationalization instructions are also included directly inside `la
 ## Changelog
 
 All notable changes to the bKash Non-Merchant Gateway module are documented here.
+
+### [1.3.1] - 2026-10-31
+
+#### Added
+- **Automated Client Refund Receipt Email**: Integrated automated, mobile-responsive HTML and plain-text refund confirmation emails dispatched directly to the customer upon successful bKash refund execution.
+- **Auditable Mail Logging**: Configured refund notifications to automatically log to Blesta's `log_emails` table tied to the client account ID.
+- **Dispute-Proof Refund Receipt Details**: Email receipt prominently displays the bKash `refundTrxID`, original `trxID`, amount, invoice reference, processing date, and official verification instructions (SMS 16247 & bKash App Inbox).
+- **Admin Settings Notification Toggle**: Added a `Send Refund Email to Client` switch under **Customer Notifications** in gateway settings (`settings.pdt`).
 
 ### [1.3.0] - 2026-10-31
 

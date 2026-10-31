@@ -282,6 +282,19 @@ class Bkash extends NonmerchantGateway
             ]
         ];
 
+        // Default email_refund to 'false' if checkbox is unchecked.
+        if (!isset($meta['email_refund'])) {
+            $meta['email_refund'] = 'false';
+        }
+
+        // Enforce strict boolean string for the email_refund flag.
+        $rules['email_refund'] = [
+            'valid' => [
+                'rule' => ['in_array', ['true', 'false']],
+                'message' => Language::_('Bkash.!error.sandbox.valid', true)
+            ]
+        ];
+
         $this->Input->setRules($rules);
         $this->Input->validates($meta);
 
@@ -771,11 +784,192 @@ class Bkash extends NonmerchantGateway
             return null;
         }
 
+        // Dispatch automated customer refund receipt email if enabled
+        if (($this->meta['email_refund'] ?? 'true') !== 'false') {
+            $this->sendRefundNotificationEmail(
+                $payment_id,
+                $trx_id,
+                (string) $response->refundTrxID,
+                $amount,
+                $reason
+            );
+        }
+
         return [
             'status' => 'refunded',
             'transaction_id' => (string) $response->refundTrxID,
             'reference_id' => $payment_id
         ];
+    }
+
+    /**
+     * Dispatches an automated refund confirmation email to the client.
+     *
+     * Identifies the recipient client from `bkash_payment_attempts` or `transactions`,
+     * loads the client contact details and company profile, and dispatches a detailed
+     * confirmation receipt email logged in Blesta's email log.
+     *
+     * @param string $payment_id The bKash payment ID
+     * @param string $trx_id The original bKash transaction ID
+     * @param string $refund_trx_id The bKash refund transaction ID
+     * @param float $amount The amount refunded
+     * @param string|null $reason The refund reason/notes
+     * @return bool True if the email was sent, false otherwise
+     */
+    protected function sendRefundNotificationEmail(
+        string $payment_id,
+        string $trx_id,
+        string $refund_trx_id,
+        float $amount,
+        ?string $reason = null
+    ): bool {
+        try {
+            $record = new Record();
+            $attempt = $record->select([
+                    'client_id',
+                    'company_id',
+                    'merchant_invoice_number',
+                    'invoice_amounts',
+                    'amount',
+                    'currency'
+                ])
+                ->from(self::ATTEMPT_TABLE)
+                ->where('bkash_payment_id', '=', $payment_id)
+                ->orWhere('bkash_trx_id', '=', $trx_id)
+                ->fetch();
+
+            $client_id = null;
+            $company_id = null;
+            $invoice_num = null;
+
+            if ($attempt) {
+                $client_id = (int) $attempt->client_id;
+                $company_id = (int) ($attempt->company_id ?? 0);
+                $invoice_num = $attempt->merchant_invoice_number ?? null;
+            } else {
+                $trans_record = new Record();
+                $trans = $trans_record->select(['client_id'])
+                    ->from('transactions')
+                    ->where('transaction_id', '=', $trx_id)
+                    ->orWhere('reference_id', '=', $payment_id)
+                    ->fetch();
+                if ($trans) {
+                    $client_id = (int) $trans->client_id;
+                }
+            }
+
+            if (!$client_id) {
+                return false;
+            }
+
+            Loader::loadModels($this, ['Clients', 'Companies', 'Emails']);
+
+            $client = $this->Clients->get($client_id);
+            if (!$client || empty($client->email)) {
+                return false;
+            }
+
+            if (!$company_id) {
+                $company_id = !empty($client->company_id)
+                    ? (int) $client->company_id
+                    : (int) (Configure::get('Blesta.company_id') ?: 1);
+            }
+
+            $company = $this->Companies->get($company_id);
+            $company_name = $company->name ?? 'Billing Department';
+
+            $company_email = (new Record())->select(['from', 'from_name'])
+                ->from('emails')
+                ->where('company_id', '=', $company_id)
+                ->where('from', '!=', '')
+                ->fetch();
+            $from_email = $company_email->from ?? ('billing@' . ($company->hostname ?? 'localhost'));
+            $from_name = $company_email->from_name ?? $company_name;
+
+            $formatted_amount = 'Tk. ' . number_format((float) $amount, 2);
+            $date_str = date('M d, Y h:i:s A');
+
+            // Subject line
+            $subject = sprintf('bKash Refund Confirmation: %s (TrxID: %s)', $formatted_amount, $refund_trx_id);
+
+            // Plain text body
+            $text_body = "Hi " . ($client->first_name ?? 'Customer') . ",\n\n"
+                . "We have processed your bKash refund in the amount of {$formatted_amount}. The funds have been refunded to your original bKash wallet.\n\n"
+                . "Refund Details:\n"
+                . "-----------------------------------------\n"
+                . "bKash Refund TrxID: {$refund_trx_id}\n"
+                . "Original TrxID:     {$trx_id}\n"
+                . "Payment ID:         {$payment_id}\n"
+                . "Amount Refunded:    {$formatted_amount}\n"
+                . (!empty($invoice_num) ? "Invoice Reference:  {$invoice_num}\n" : '')
+                . (!empty($reason) ? "Reason / Notes:     {$reason}\n" : '')
+                . "Date Processed:     {$date_str}\n"
+                . "Status:             Completed\n"
+                . "-----------------------------------------\n\n"
+                . "How to verify your refund:\n"
+                . "1. An official confirmation SMS will be sent to your registered SIM from bKash (16247).\n"
+                . "2. You can also view this refund transaction anytime in your bKash Mobile App under 'Inbox > Transactions'.\n\n"
+                . "Thank you for choosing {$company_name}!\n";
+
+            // HTML body (modern, mobile-responsive, branded)
+            $html_body = '<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8fafc; color: #334155;">'
+                . '<div style="background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">'
+                . '  <div style="background: linear-gradient(135deg, #e2136e 0%, #9e1638 100%); padding: 24px; text-align: center; color: #ffffff;">'
+                . '    <h2 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.02em;">Refund Confirmation</h2>'
+                . '    <p style="margin: 6px 0 0; font-size: 14px; opacity: 0.9;">bKash Tokenized Payment</p>'
+                . '  </div>'
+                . '  <div style="padding: 24px;">'
+                . '    <p style="font-size: 15px; line-height: 1.5; margin-top: 0;">Hi <strong>' . htmlspecialchars($client->first_name ?? 'Customer') . '</strong>,</p>'
+                . '    <p style="font-size: 15px; line-height: 1.5;">We have successfully processed a refund of <strong style="color: #e2136e; font-size: 16px;">' . htmlspecialchars($formatted_amount) . '</strong> to your bKash wallet.</p>'
+                . '    <div style="background-color: #fff1f5; border: 1px solid #fbcfe8; border-radius: 6px; padding: 16px; margin: 20px 0;">'
+                . '      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">'
+                . '        <tr><td style="padding: 6px 0; color: #64748b; width: 45%;">bKash Refund TrxID:</td><td style="padding: 6px 0; font-weight: bold; color: #e2136e; font-family: monospace; font-size: 15px;">' . htmlspecialchars($refund_trx_id) . '</td></tr>'
+                . '        <tr><td style="padding: 6px 0; color: #64748b;">Original TrxID:</td><td style="padding: 6px 0; font-family: monospace;">' . htmlspecialchars($trx_id) . '</td></tr>'
+                . '        <tr><td style="padding: 6px 0; color: #64748b;">Amount Refunded:</td><td style="padding: 6px 0; font-weight: 600;">' . htmlspecialchars($formatted_amount) . '</td></tr>'
+                . (!empty($invoice_num) ? '<tr><td style="padding: 6px 0; color: #64748b;">Invoice Reference:</td><td style="padding: 6px 0;">' . htmlspecialchars($invoice_num) . '</td></tr>' : '')
+                . (!empty($reason) ? '<tr><td style="padding: 6px 0; color: #64748b;">Reason / Notes:</td><td style="padding: 6px 0;">' . htmlspecialchars($reason) . '</td></tr>' : '')
+                . '        <tr><td style="padding: 6px 0; color: #64748b;">Status:</td><td style="padding: 6px 0;"><span style="background-color: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;">Completed</span></td></tr>'
+                . '        <tr><td style="padding: 6px 0; color: #64748b;">Date Processed:</td><td style="padding: 6px 0; color: #64748b;">' . htmlspecialchars($date_str) . '</td></tr>'
+                . '      </table>'
+                . '    </div>'
+                . '    <div style="background-color: #f1f5f9; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #334155; margin: 20px 0;">'
+                . '      <strong>Where is my money?</strong><br>'
+                . '      The refunded amount has been credited directly to your bKash wallet. You will also receive an official SMS notification from bKash (<strong>16247</strong>), and you can verify this transaction in your bKash App under <em>Inbox &gt; Transactions</em>.'
+                . '    </div>'
+                . '    <p style="font-size: 14px; line-height: 1.5; margin-bottom: 0;">If you have any questions or need further assistance, please feel free to reach out to our support team.</p>'
+                . '  </div>'
+                . '  <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center; font-size: 12px; color: #94a3b8;">'
+                . '    Sent by <strong>' . htmlspecialchars($company_name) . '</strong> Billing System.'
+                . '  </div>'
+                . '</div>'
+                . '</div>';
+
+            $this->Emails->sendCustom(
+                $from_email,
+                $from_name,
+                $client->email,
+                $subject,
+                [
+                    'html' => $html_body,
+                    'text' => $text_body
+                ],
+                null,
+                null,
+                null,
+                null,
+                [
+                    'to_client_id' => (int) $client->id,
+                    'company_id'   => (int) $company_id,
+                    'log'          => true
+                ]
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            // Fail-safe: ensure email notification issues never disrupt the refund process
+            error_log('bKash refund email dispatch failed: ' . $e->getMessage());
+            return false;
+        }
     }
 
     /**
